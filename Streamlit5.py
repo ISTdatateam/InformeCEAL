@@ -744,7 +744,7 @@ if (uploaded_file_combined is not None and
             doc.add_paragraph()
             doc.add_paragraph()
             # Agregar imagen del logo (ajusta la ruta de la imagen a tu ubicación)
-            doc.add_picture('ist.jpg', width=Inches(2))  # Ajusta el tamaño según sea necesario
+            doc.add_picture('https://github.com/ISTdatateam/InformeCEAL/blob/01f83eb31899829f49c276199160f158f20afc71/IST.jpg', width=Inches(2))  # Ajusta el tamaño según sea necesario
             last_paragraph = doc.paragraphs[-1]
             last_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER  # Alinear a la derecha
             doc.add_paragraph()
