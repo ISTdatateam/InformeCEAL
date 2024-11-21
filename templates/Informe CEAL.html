@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formulario - Medidas Propuestas</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #000;
+            padding: 8px;
+            text-align: left;
+        }
+        textarea, input, select {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <h1>Medidas Propuestas para Home Farm Rengo</h1>
+    <table id="medidasTable">
+        <thead>
+            <tr>
+                <th>Dimensión en riesgo</th>
+                <th>Preguntas clave</th>
+                <th>Explicación</th>
+                <th>Medida propuesta</th>
+                <th>Fecha monitoreo</th>
+                <th>Responsable seguimiento</th>
+                <th>Acción</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Ejemplo inicial -->
+            <tr class="dimension-group">
+                <td rowspan="2" class="dimension-cell"><strong>Carga de trabajo</strong> (60.0% Riesgo Alto, 6 personas) en Administración</td>
+                <td rowspan="2" class="preguntas-cell">
+                    <p>¿Su carga de trabajo se distribuye de manera desigual de modo que se le acumula el trabajo?</p>
+                    <p>¿Con qué frecuencia le falta tiempo para completar sus tareas?</p>
+                </td>
+                <td rowspan="2" class="explicacion-cell">
+                    <textarea name="explicacion_carga" rows="4" placeholder="COMPLETAR"></textarea>
+                </td>
+                <td>
+                    <textarea name="medida_carga_1" rows="3">- Involucrar a los trabajadores en el rediseño de tareas, considerando la estacionalidad y cambios climáticos.</textarea>
+                </td>
+                <td>
+                    <select name="fecha_carga_1">
+                        <option value="corto">01/03/2024 (Corto Plazo)</option>
+                        <option value="mediano">01/06/2024 (Mediano Plazo)</option>
+                        <option value="largo">01/09/2024 (Largo Plazo)</option>
+                    </select>
+                </td>
+                <td><input type="text" name="responsable_carga_1" placeholder="COMPLETAR"></td>
+                <td>
+                    <button onclick="addRecommendation(this)">Agregar</button>
+                    <button onclick="deleteRow(this)">Eliminar</button>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <textarea name="medida_carga_2" rows="3">- Ajustar tareas a la capacidad física y experiencia, revisando la carga estacionalmente.</textarea>
+                </td>
+                <td>
+                    <select name="fecha_carga_2">
+                        <option value="corto">01/03/2024 (Corto Plazo)</option>
+                        <option value="mediano">01/06/2024 (Mediano Plazo)</option>
+                        <option value="largo">01/09/2024 (Largo Plazo)</option>
+                    </select>
+                </td>
+                <td><input type="text" name="responsable_carga_2" placeholder="COMPLETAR"></td>
+                <td>
+                    <button onclick="addRecommendation(this)">Agregar</button>
+                    <button onclick="deleteRow(this)">Eliminar</button>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <script>
+        // Función para agregar una nueva fila dentro de la misma dimensión
+        function addRecommendation(button) {
+            const row = button.closest('tr'); // Fila actual
+            const tbody = row.parentNode; // Cuerpo de la tabla
+            const dimensionCell = tbody.querySelector('.dimension-cell'); // Celda de la dimensión
+            const preguntasCell = tbody.querySelector('.preguntas-cell'); // Celda de preguntas
+            const explicacionCell = tbody.querySelector('.explicacion-cell'); // Celda de explicación
+
+            // Incrementar el rowspan dinámicamente
+            if (dimensionCell) dimensionCell.rowSpan += 1;
+            if (preguntasCell) preguntasCell.rowSpan += 1;
+            if (explicacionCell) explicacionCell.rowSpan += 1;
+
+            // Crear una nueva fila para la nueva recomendación
+            const newRow = document.createElement('tr');
+            newRow.innerHTML = `
+                <td>
+                    <textarea name="medida_nueva" rows="3" placeholder="Nueva medida propuesta"></textarea>
+                </td>
+                <td>
+                    <select name="fecha_nueva">
+                        <option value="corto">01/03/2024 (Corto Plazo)</option>
+                        <option value="mediano">01/06/2024 (Mediano Plazo)</option>
+                        <option value="largo">01/09/2024 (Largo Plazo)</option>
+                    </select>
+                </td>
+                <td><input type="text" name="responsable_nueva" placeholder="COMPLETAR"></td>
+                <td>
+                    <button onclick="addRecommendation(this)">Agregar</button>
+                    <button onclick="deleteRow(this)">Eliminar</button>
+                </td>
+            `;
+
+            // Insertar la nueva fila después de la fila actual
+            tbody.insertBefore(newRow, row.nextSibling);
+        }
+
+        // Función para eliminar una fila
+        function deleteRow(button) {
+            const row = button.closest('tr'); // Fila actual
+            const tbody = row.parentNode; // Cuerpo de la tabla
+            const dimensionCell = tbody.querySelector('.dimension-cell'); // Celda de la dimensión
+            const preguntasCell = tbody.querySelector('.preguntas-cell'); // Celda de preguntas
+            const explicacionCell = tbody.querySelector('.explicacion-cell'); // Celda de explicación
+
+            // Reducir el rowspan dinámicamente solo si no es la última fila
+            if (dimensionCell && dimensionCell.rowSpan > 1) dimensionCell.rowSpan -= 1;
+            if (preguntasCell && preguntasCell.rowSpan > 1) preguntasCell.rowSpan -= 1;
+            if (explicacionCell && explicacionCell.rowSpan > 1) explicacionCell.rowSpan -= 1;
+
+            // Eliminar la fila actual
+            row.parentNode.removeChild(row);
+        }
+    </script>
+</body>
+</html>
