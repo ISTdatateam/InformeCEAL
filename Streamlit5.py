@@ -10,6 +10,10 @@ from docx import Document
 from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
+
+
+
 
 # Configuración inicial de la aplicación
 st.set_page_config(page_title="Generador de Informes de Riesgos Psicosociales")
@@ -72,8 +76,8 @@ if (uploaded_file_combined is not None and
         df_res_com = pd.read_excel(uploaded_file_resultados, sheet_name='Datos')
 
         # Convertir 'CUV' a int64 en df_resultados
-        df_resultados['CUV'] = pd.to_numeric(df_resultados['CUV'], errors='coerce').astype(
-            'Int64')  # Usa 'Int64' para permitir NaNs
+        #df_resultados['CUV'] = pd.to_numeric(df_resultados['CUV'], errors='coerce').astype(
+        #    'Int64')  # Usa 'Int64' para permitir NaNs
 
         st.success("Archivo 'resultados.xlsx' cargado y procesado exitosamente.")
     except Exception as e:
@@ -101,6 +105,7 @@ if (uploaded_file_combined is not None and
     df_recomendaciones = pd.merge(df_ciiu, df_reco, left_on='Sección', right_on='Rubro', how='left')
 
     # Asegurar que las columnas 'CUV' y 'ciiu' sean de tipo str
+    df_resultados['CUV'] = df_resultados['CUV'].astype(str)
     df_res_com['CUV'] = df_res_com['CUV'].astype(str)
     summary_df['CUV'] = summary_df['CUV'].astype(str)
     df_resultados_porcentaje['CUV'] = df_resultados_porcentaje['CUV'].astype(str)
@@ -110,17 +115,36 @@ if (uploaded_file_combined is not None and
     top_glosas['CUV'] = top_glosas['CUV'].astype(str)
     df_recomendaciones['ciiu'] = df_recomendaciones['ciiu'].astype(str)
 
-    # Convertir las fechas al tipo datetime y luego al formato deseado
-    columna_fecha_inicio = 'Fecha Inicio'  # Ajusta si el nombre es diferente
+    def procesar_columna_fecha(df, columna, formato='%d-%m-%Y'):
+        """
+        Convierte una columna de fechas en el DataFrame al formato deseado.
 
-    if columna_fecha_inicio in df_res_com.columns:
-        df_res_com['Fecha Inicio'] = pd.to_datetime(df_res_com[columna_fecha_inicio], errors='coerce').dt.strftime(
-            '%d-%m-%Y')
-        st.success("Columna 'Fecha Inicio' procesada correctamente.")
-    else:
-        st.error(
-            f"La columna '{columna_fecha_inicio}' no se encontró en el DataFrame 'df_res_com'. Por favor, verifica el nombre de la columna.")
-        st.write("Columnas disponibles en 'df_res_com':", df_res_com.columns.tolist())
+        Parameters:
+        - df (pd.DataFrame): El DataFrame que contiene la columna.
+        - columna (str): El nombre de la columna a procesar.
+        - formato (str): El formato al que se desea convertir la fecha.
+
+        Returns:
+        - pd.DataFrame: El DataFrame con la columna procesada.
+        """
+        if columna in df.columns:
+            df[columna] = pd.to_datetime(df[columna], errors='coerce').dt.strftime(formato)
+            st.success(f"Columna '{columna}' procesada correctamente.")
+        else:
+            st.error(
+                f"La columna '{columna}' no se encontró en el DataFrame 'df_res_com'. Por favor, verifica el nombre de la columna.")
+            st.write("Columnas disponibles en 'df_res_com':", df.columns.tolist())
+        return df
+
+
+    columnas_fecha = ['Fecha Inicio', 'Fecha Fin']
+
+    # Procesar cada columna de fecha
+    for columna in columnas_fecha:
+        df_res_com = procesar_columna_fecha(df_res_com, columna)
+
+
+
 
 
     # Definir funciones auxiliares
@@ -201,7 +225,7 @@ if (uploaded_file_combined is not None and
             ciiu_unico = ciiu_valor.iloc[0]
             if isinstance(ciiu_unico, str) and ciiu_unico.isdigit():
                 ciiu = int(ciiu_unico[:2]) if len(ciiu_unico) > 5 else int(ciiu_unico[:1])
-                print(f"El valor del CIIU para buscar es: {ciiu}")
+
             else:
                 print("El valor de CIIU no es numérico.")
                 ciiu = None
@@ -309,34 +333,37 @@ if (uploaded_file_combined is not None and
 
 
     def agregar_tabla_ges_por_dimension_streamlit(df, cuv, df_recomendaciones, df_resultados_porcentaje,
-                                                  df_porcentajes_niveles, top_glosas, datos):
+                                                  df_porcentajes_niveles, top_glosas, df_res_com):
         """
-        Agrega una tabla de dimensiones y GES para un CUV específico en el documento de Word.
-
-        Parámetros:
-        df (pd.DataFrame): DataFrame con los datos de dimensiones y GES filtrados.
-        cuv (str): El CUV específico para el que se generará la tabla.
-        df_recomendaciones (pd.DataFrame): DataFrame con las recomendaciones por dimensión.
+        Prepara una estructura de datos con medidas propuestas por dimensión y retorna una lista de diccionarios.
         """
+        # Verificar tipos de entrada
+        if not isinstance(df, pd.DataFrame):
+            st.error("El parámetro 'df' debe ser un DataFrame.")
+            return []
+        if not isinstance(df_recomendaciones, pd.DataFrame):
+            st.error("El parámetro 'df_recomendaciones' debe ser un DataFrame.")
+            return []
+        if not isinstance(df_resultados_porcentaje, pd.DataFrame):
+            st.error("El parámetro 'df_resultados_porcentaje' debe ser un DataFrame.")
+            return []
+        if not isinstance(df_porcentajes_niveles, pd.DataFrame):
+            st.error("El parámetro 'df_porcentajes_niveles' debe ser un DataFrame.")
+            return []
+        if not isinstance(top_glosas, pd.DataFrame):
+            st.error("El parámetro 'top_glosas' debe ser un DataFrame.")
+            return []
+        if not isinstance(df_res_com, pd.DataFrame):
+            st.error("El parámetro 'df_res_com' debe ser un DataFrame.")
+            return []
 
-        # Filtrar el DataFrame para el CUV específico
-        df_revision = df[df['CUV'] == cuv]
-        unique_te3 = df_revision['TE3'].dropna().unique()
-
-        if len(unique_te3) < 2:
-            noges = 1
-            print(f"Solo hay un GES para el CUV {cuv}. No se generarán recomendaciones por GES.")
-        else:
-            noges = 0
-
-        # Filtrar el DataFrame para el CUV específico y puntajes 1 y 2
+        # Filtrar el DataFrame para el CUV y puntajes 1 y 2
         df_cuv = df[(df['CUV'] == cuv) & (df['Puntaje'].isin([1, 2]))]
-
         if df_cuv.empty:
             st.warning(f"No hay datos con puntaje 1 o 2 para el CUV {cuv}.")
-            return
+            return []
 
-        # Agrupar por 'Dimensión' y combinar los valores únicos de 'TE3' en una lista separada por "; "
+        # Agrupar por 'Dimensión' y obtener los valores únicos de 'TE3'
         resultado = df_cuv.groupby('Dimensión')['TE3'].unique().reset_index()
         resultado['GES'] = resultado['TE3'].apply(lambda x: '; '.join(map(str, x)))
 
@@ -346,44 +373,40 @@ if (uploaded_file_combined is not None and
             .str.replace('?', '_', regex=False)
 
         # Asegúrate de que los valores en 'CIIU' son strings y extraer la parte necesaria
-        datos['CIIU'] = datos['CIIU'].apply(lambda x: x.split('_')[-1] if isinstance(x, str) else x)
+        df_res_com['CIIU'] = df_res_com['CIIU'].apply(lambda x: x.split('_')[-1] if isinstance(x, str) else x)
 
         # Filtrar el DataFrame para el CUV específico y obtener el valor único de CIIU
-        ciiu_valor = datos.loc[datos['CUV'] == cuv, 'CIIU'].copy()
+        ciiu_valor = df_res_com.loc[df_res_com['CUV'] == cuv, 'CIIU']
 
-        if len(ciiu_valor) > 0:
+        if not ciiu_valor.empty:
             ciiu_unico = ciiu_valor.iloc[0]
             if isinstance(ciiu_unico, str) and ciiu_unico.isdigit():
                 ciiu = int(ciiu_unico[:2]) if len(ciiu_unico) > 5 else int(ciiu_unico[:1])
-                print(f"El valor del CIIU para buscar es: {ciiu}")
-            else:
-                print("El valor de CIIU no es numérico.")
-                ciiu = None
-        else:
-            print("CUV no encontrado en la tabla de datos.")
-            ciiu = None
 
-        if ciiu is None:
-            st.error(f"No se pudo determinar el valor de CIIU para el CUV {cuv}.")
-            return
+            else:
+                st.error("El valor de CIIU no es numérico.")
+                return []
+        else:
+            st.error(f"No se encontró el valor de CIIU para el CUV {cuv}.")
+            return []
 
         # Asegurarse de que 'Descripción' sea string y reemplazar NaN
         df_resultados_porcentaje['Descripción'] = df_resultados_porcentaje['Descripción'].fillna('').astype(str)
 
-        # Inicializar una lista para almacenar las filas de la tabla
-        data = []
+        # Inicializar una lista para almacenar las dimensiones
+        dimensiones = []
 
-        # Rellenar la tabla con los datos de 'Dimensión' y 'GES'
+        # Rellenar la lista con los datos de 'Dimensión' y 'GES'
         for _, row in resultado.iterrows():
             dim = row['Dimensión']
             ges = row['GES']
 
-            # Obtener las recomendaciones para esta dimensión
+            # Obtener las recomendaciones para esta dimensión y CIIU
             recomendaciones = df_recomendaciones[
                 (df_recomendaciones['Dimensión'] == dim) &
                 (df_recomendaciones['ciiu'] == str(ciiu))
                 ]['Recomendación'].tolist()
-            medidas_propuestas = '\n'.join([f"- {rec}" for rec in recomendaciones]) if recomendaciones else 'N/A'
+            medidas_propuestas = recomendaciones if recomendaciones else ['N/A']
 
             # Obtener la descripción relacionada desde df_resultados_porcentaje
             descripcion = df_resultados_porcentaje[
@@ -394,6 +417,7 @@ if (uploaded_file_combined is not None and
             # Filtrar solo cadenas no vacías
             descripcion = [desc for desc in descripcion if isinstance(desc, str) and desc.strip() != '']
 
+            # Obtener las descripciones adicionales desde df_porcentajes_niveles
             descripcion2 = [
                 f"{desc} en {ges}"
                 for desc in df_porcentajes_niveles[
@@ -419,29 +443,47 @@ if (uploaded_file_combined is not None and
                 descripcion_text = ""
 
             # Verificar si hay múltiples GES
+            unique_te3 = df[df['CUV'] == cuv]['TE3'].dropna().unique()
+            noges = 1 if len(unique_te3) < 2 else 0
             if noges == 1:
                 descripcion2_text = ""
-                print(f"Solo hay un GES para el CUV {cuv}. No se generarán recomendaciones por GES.")
+                st.info(f"Solo hay un GES para el CUV {cuv}. No se generarán recomendaciones por GES.")
 
             # Obtener las preguntas clave desde top_glosas
             filtro_glosas = top_glosas[(top_glosas['Dimensión'] == dim) & (top_glosas['CUV'] == cuv)]
             preguntas = filtro_glosas['Pregunta'].tolist()
-            preguntas_text = '\n'.join(preguntas) if preguntas else 'N/A'
+            preguntas_text = '\n'.join([f"- {pregunta}" for pregunta in preguntas]) if preguntas else 'N/A'
 
-            # Agregar la fila a la lista de datos
-            data.append({
-                'Dimensión en riesgo': f"{descripcion_text}{descripcion2_text}".strip(),
+            # Agregar la dimensión a la lista
+            dimensiones.append({
+                'Dimensión en riesgo': descripcion_text.strip(),
                 'Preguntas clave': preguntas_text.strip(),
-                'Explicación': 'N/A',  # Puedes reemplazar 'N/A' con información real si está disponible
-                'Medidas propuestas': medidas_propuestas.strip(),
-                'Fecha monitoreo': 'N/A',  # Puedes agregar fechas si las tienes
-                'Responsable seguimiento': 'N/A'  # Puedes agregar responsables si los tienes
+                'Interpretación del grupo de discusión': '(COMPLETAR)',
+                'Medidas propuestas': medidas_propuestas  # Lista de medidas
             })
 
-        # Crear un DataFrame a partir de la lista de datos
-        df_table = pd.DataFrame(data)
+        return dimensiones
 
-        return df_table
+
+    def mostrar_datos(datos):
+        """
+        Muestra los datos de una empresa formateados en Markdown.
+
+        Parameters:
+        - datos (dict): Diccionario con los datos de la empresa.
+        """
+        contenido = f"""
+        **Razón Social:** {datos.get('Nombre Empresa', 'N/A')}  
+        **RUT:** {datos.get('RUT Empresa Lugar Geográfico', 'N/A')}  
+        **Nombre del centro de trabajo:** {datos.get('Nombre Centro de Trabajo', 'N/A')}  
+        **CUV:** {datos.get('CUV', 'N/A')}  
+        **CIIU:** {datos.get('CIIU CT', 'N/A').split('_')[-1] if 'CIIU CT' in datos else 'N/A'}  
+        **Fecha de activación del cuestionario:** {datos.get('Fecha Inicio', 'N/A')}  
+        **Fecha de cierre del cuestionario:** {datos.get('Fecha Fin', 'N/A')}  
+        **Universo de trabajadores de evaluación:** {datos.get('Nº Trabajadores CT', 'N/A')}  
+        """
+        st.markdown(contenido)
+
 
 
     # Sección 2: Selección de CUV para generar el informe
@@ -453,6 +495,13 @@ if (uploaded_file_combined is not None and
     # Filtrar los datos para el CUV seleccionado
     datos = df_res_com[df_res_com['CUV'] == selected_cuv]
     estado = summary_df[summary_df['CUV'] == selected_cuv]
+
+    # Mostrar la información de la empresa
+    st.subheader("Información de la Empresa")
+    for _, row in datos.iterrows():
+        mostrar_datos(row.to_dict())
+        st.markdown("---")  # Línea separadora entre empresas
+
 
     if datos.empty or estado.empty:
         st.error(f"No se encontraron datos para el CUV {selected_cuv}.")
@@ -578,7 +627,7 @@ if (uploaded_file_combined is not None and
 
             # Verificar si hay más de un valor de TE3
             if len(te3_values) <= 1:
-                st.info(f"Solo hay un valor de TE3 para el CUV {CUV}. No se generarán gráficos adicionales.")
+                st.info(f"Solo hay un GES para el CUV {CUV}. No se generarán gráficos adicionales.")
                 return []
 
             figs_te3 = []
@@ -676,21 +725,130 @@ if (uploaded_file_combined is not None and
 
 
         else:
-            st.info("No se generaron gráficos adicionales por TE3.")
+            st.info("No se generaron gráficos adicionales por GES.")
 
 
         # Sección 5: Prescripciones de medidas
         st.header("5. Prescripciones de medidas")
 
-        tabla_te3 = agregar_tabla_ges_por_dimension_streamlit(df_res_dimTE3, selected_cuv, df_recomendaciones,
+        dimensiones_te3 = agregar_tabla_ges_por_dimension_streamlit(df_res_dimTE3, selected_cuv, df_recomendaciones,
                                             df_resultados_porcentaje, df_porcentajes_niveles, top_glosas, df_res_com)
 
-        if not tabla_te3.empty:
-            st.markdown("### Análisis de Dimensiones en Riesgo para este TE3")
-            st.table(tabla_te3)  # Puedes usar st.dataframe(tabla_te3) si prefieres una tabla interactiva
-        else:
-            st.info("No hay dimensiones en riesgo para este TE3.")
+        #st.session_state.dimensiones_te3 = dimensiones_te3
 
+
+        def actualizar_numeracion(df):
+            df = df.reset_index(drop=True)
+            df['N°'] = df.index + 1
+            return df
+
+        # Procesar cada dimensión
+        for idx, dimension in enumerate(dimensiones_te3, 1):
+            st.subheader(f"{idx}. {dimension['Dimensión en riesgo']}")
+            st.write("Preguntas clave:")
+            st.write(dimension["Preguntas clave"])
+
+            st.write("Interpretación del grupo de discusión:")
+            st.write(dimension["Interpretación del grupo de discusión"])
+
+            # Convertir medidas propuestas en DataFrame si no existe en sesión
+            session_key = f"measures_{idx}"
+            if session_key not in st.session_state:
+                medidas_data = [
+                    {'N°': i + 1, 'Medida': medida, 'Fecha monitoreo': '', 'Responsable': '', 'Activo': True}
+                    for i, medida in enumerate(dimension['Medidas propuestas'])
+                ]
+                st.session_state[session_key] = pd.DataFrame(medidas_data)
+
+            # Renderizar tarjetas
+            st.write("### Medidas propuestas")
+            df = st.session_state[session_key].copy()
+
+            for i, row in df.iterrows():
+                st.markdown(f"#### Medida {row['N°']}")
+
+                # Desactivar campos si la medida está eliminada
+                desactivado = not st.session_state[session_key].at[i, 'Activo']
+
+                # Botón para eliminar medida (desactivado si ya está eliminada)
+                if not desactivado:
+                    if st.button(f"Eliminar medida {row['N°']}", key=f"eliminar_{idx}_{i}"):
+                        st.session_state[session_key].at[i, 'Activo'] = False  # Marcar como eliminada
+                        st.session_state[session_key] = actualizar_numeracion(st.session_state[session_key])
+
+                # Campo editable con múltiples líneas
+                medida = st.text_area(
+                    "Descripción de la medida",
+                    value=row['Medida'],
+                    key=f"medida_{idx}_{i}",
+                    height=90,
+                    disabled=desactivado  # Bloquear si está eliminada
+                )
+                # Guardar cambios en el DataFrame
+                st.session_state[session_key].at[i, 'Medida'] = medida
+
+                col1, col2 = st.columns([1, 1])
+
+                with col1:
+                    fecha = st.date_input(
+                        "Fecha de monitoreo",
+                        value=row['Fecha monitoreo'] if row['Fecha monitoreo'] else None,
+                        key=f"fecha_{idx}_{i}",
+                        disabled=desactivado  # Bloquear si está eliminada
+                    )
+                    st.session_state[session_key].at[i, 'Fecha monitoreo'] = fecha
+
+                with col2:
+                    responsable = st.text_input(
+                        "Responsable",
+                        value=row['Responsable'],
+                        key=f"responsable_{idx}_{i}",
+                        disabled=desactivado  # Bloquear si está eliminada
+                    )
+                    st.session_state[session_key].at[i, 'Responsable'] = responsable
+
+                # Mostrar mensaje si está eliminada
+                if desactivado:
+                    st.write(f"**Medida eliminada ⚠️**", unsafe_allow_html=True)
+
+            # Botón para agregar nueva medida
+            if st.button(f"Agregar nueva medida {idx}", key=f"add_{idx}"):
+                nueva_medida = {"N°": len(st.session_state[session_key]) + 1, "Medida": "", "Fecha monitoreo": "",
+                                "Responsable": "", "Activo": True}
+                st.session_state[session_key] = pd.concat(
+                    [st.session_state[session_key], pd.DataFrame([nueva_medida])], ignore_index=True
+                )
+                st.session_state[session_key] = actualizar_numeracion(st.session_state[session_key])
+
+        # Botón para guardar datos en un archivo
+        st.write("### Guardar Datos")
+        if st.button("Guardar medidas en archivo"):
+            all_measures = []
+            for idx in range(1, len(dimensiones_te3) + 1):
+                session_key = f"measures_{idx}"
+                if session_key in st.session_state:
+                    temp_df = st.session_state[session_key].copy()
+                    temp_df['Dimensión'] = dimensiones_te3[idx - 1]["Dimensión en riesgo"]
+                    all_measures.append(temp_df)
+            final_df = pd.concat(all_measures, ignore_index=True)
+
+            # Exportar como CSV
+            csv = final_df.to_csv(index=False)
+            st.download_button(
+                label="Descargar archivo CSV",
+                data=csv,
+                file_name="medidas.csv",
+                mime="text/csv",
+            )
+            st.success("Datos guardados correctamente.")
+
+
+
+            st.success("Datos guardados correctamente.")
+            print (final_df)
+
+        else:
+            st.info("No hay dimensiones en riesgo para este GES.")
 
         # Sección 6: Generación del informe en Word
         st.header("6. Generación del informe en Word")
