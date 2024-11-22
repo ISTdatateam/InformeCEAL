@@ -4,15 +4,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import unicodedata
-from datetime import datetime
 from io import BytesIO
 from docx import Document
 from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
-
-
 
 
 # Configuración inicial de la aplicación
