@@ -732,6 +732,12 @@ if (uploaded_file_combined is not None and
 
         #st.session_state.dimensiones_te3 = dimensiones_te3
 
+        import streamlit as st
+        import pandas as pd
+        import numpy as np
+
+
+        # Función para actualizar la numeración
         def actualizar_numeracion(df):
             df = df.reset_index(drop=True)
             df['N°'] = df.index + 1
@@ -774,47 +780,43 @@ if (uploaded_file_combined is not None and
                 st.write("#### Crear una nueva medida")
                 medida_idx = None
 
-            # Inicializa session_state para manejar cambios en fecha y responsable
-            fecha_key = f"edit_fecha_{idx}"
-            responsable_key = f"edit_responsable_{idx}"
+            # Crear formulario para editar o crear medida
+            with st.form(key=f"form_{idx}"):
+                medida = st.text_area(
+                    "Descripción de la medida",
+                    value=df.at[medida_idx, 'Medida'] if medida_idx is not None else "",
+                    key=f"edit_medida_{idx}",
+                    height=90
+                )
+                fecha = st.date_input(
+                    "Fecha de monitoreo",
+                    value=pd.to_datetime(df.at[medida_idx, 'Fecha monitoreo']) if medida_idx is not None and df.at[
+                        medida_idx, 'Fecha monitoreo'] else None,
+                    key=f"edit_fecha_{idx}"
+                )
+                responsable = st.text_input(
+                    "Responsable",
+                    value=df.at[medida_idx, 'Responsable'] if medida_idx is not None else "",
+                    key=f"edit_responsable_{idx}"
+                )
 
-            # Establecer valores iniciales en session_state para evitar recargas innecesarias
-            if fecha_key not in st.session_state:
-                st.session_state[fecha_key] = df.at[medida_idx, 'Fecha monitoreo'] if medida_idx is not None else None
-            if responsable_key not in st.session_state:
-                st.session_state[responsable_key] = df.at[medida_idx, 'Responsable'] if medida_idx is not None else ""
+                # Botón para enviar el formulario
+                submit_button = st.form_submit_button(label="Confirmar selección o crear nueva medida")
 
-            # Campos de entrada conectados a session_state
-            medida = st.text_area(
-                "Descripción de la medida",
-                value=df.at[medida_idx, 'Medida'] if medida_idx is not None else "",
-                key=f"edit_medida_{idx}",
-                height=90
-            )
-            fecha = st.date_input(
-                "Fecha de monitoreo",
-                value=st.session_state[fecha_key],
-                key=fecha_key
-            )
-            responsable = st.text_input(
-                "Responsable",
-                value=st.session_state[responsable_key],
-                key=responsable_key
-            )
-
-            # Confirmar selección o creación de medida
-            if st.button("Confirmar selección o crear nueva medida", key=f"confirmar_{idx}"):
+            # Procesar la acción del formulario
+            if submit_button:
                 if medida_idx is not None:  # Editar medida existente
                     st.session_state[session_key].at[medida_idx, 'Medida'] = medida
-                    st.session_state[session_key].at[medida_idx, 'Fecha monitoreo'] = fecha
+                    st.session_state[session_key].at[medida_idx, 'Fecha monitoreo'] = fecha.strftime(
+                        '%Y-%m-%d') if fecha else ''
                     st.session_state[session_key].at[medida_idx, 'Responsable'] = responsable
                     st.session_state[session_key].at[medida_idx, 'Seleccionada'] = True
-                    st.success("Medida actualizada correctamente.")
+                    st.success("Medida actualizada correctamente")
                 else:  # Crear nueva medida
                     nueva_medida = {
                         "N°": len(st.session_state[session_key]) + 1,
                         "Medida": medida,
-                        "Fecha monitoreo": fecha,
+                        "Fecha monitoreo": fecha.strftime('%Y-%m-%d') if fecha else '',
                         "Responsable": responsable,
                         "Activo": True,
                         "Seleccionada": True
@@ -823,7 +825,7 @@ if (uploaded_file_combined is not None and
                         [st.session_state[session_key], pd.DataFrame([nueva_medida])],
                         ignore_index=True
                     )
-                    st.success("Nueva medida creada correctamente.")
+                    st.success("Nueva medida creada correctamente")
 
         # Botón para guardar datos en un archivo
         st.write("### Guardar Datos")
