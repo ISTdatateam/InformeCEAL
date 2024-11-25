@@ -33,7 +33,7 @@ uploaded_file_combined = st.file_uploader("Selecciona el archivo 'combined_outpu
 # uploaded_file_resultados = st.file_uploader("Selecciona el archivo 'resultados.xlsx'", type="xlsx")
 
 #precargas
-uploaded_file_rec = 'Recomendaciones2.xlsx'
+uploaded_file_rec = 'Recomendaciones.xlsx'
 uploaded_file_ciiu = 'ciiu.xlsx'
 uploaded_file_resultados = 'resultados.xlsx'
 
@@ -53,16 +53,16 @@ if (uploaded_file_combined is not None and
         df_resumen = pd.read_excel(uploaded_file_combined, sheet_name='df_resumen')
         top_glosas = pd.read_excel(uploaded_file_combined, sheet_name='top_glosas')
 
-        st.success("Archivo 'combined_output.xlsx' cargado exitosamente.")
+        #st.success("Archivo 'combined_output.xlsx' cargado exitosamente.")
     except Exception as e:
         st.error(f"Error al leer las hojas de 'combined_output.xlsx': {e}")
 
     # Leer los archivos de recomendaciones y CIIU
     try:
-        df_rec = pd.read_excel(uploaded_file_rec, sheet_name='Hoja1')  # Cambia 'Hoja1' si es necesario
+        df_recomendaciones = pd.read_excel(uploaded_file_rec, sheet_name='df_recomendaciones')  # Cambia 'Hoja1' si es necesario
         df_ciiu = pd.read_excel(uploaded_file_ciiu, sheet_name='ciiu')  # Cambia 'ciiu' si es necesario
 
-        st.success("Archivos 'Recomendaciones2.xlsx' y 'ciiu.xlsx' cargados exitosamente.")
+        #st.success("Archivos 'Recomendaciones2.xlsx' y 'ciiu.xlsx' cargados exitosamente.")
     except Exception as e:
         st.error(f"Error al leer los archivos de recomendaciones y CIIU: {e}")
 
@@ -75,30 +75,10 @@ if (uploaded_file_combined is not None and
         #df_resultados['CUV'] = pd.to_numeric(df_resultados['CUV'], errors='coerce').astype(
         #    'Int64')  # Usa 'Int64' para permitir NaNs
 
-        st.success("Archivo 'resultados.xlsx' cargado y procesado exitosamente.")
+        #st.success("Archivo 'resultados.xlsx' cargado y procesado exitosamente.")
     except Exception as e:
         st.error(f"Error al leer y procesar 'resultados.xlsx': {e}")
 
-    # Procesamiento de df_rec para crear df_reco
-    df_reco = pd.DataFrame(columns=['Dimensión', 'Rubro', 'Recomendación'])
-
-    for index, row in df_rec.iterrows():
-        dimension = row['Dimensión']
-        for i in range(0, len(row) - 1, 2):
-            rubro_col = f'Rubro.{i // 2}' if i // 2 > 0 else 'Rubro'
-            recomendacion_col = f'Recomendación.{i // 2}' if i // 2 > 0 else 'Recomendación'
-
-            if rubro_col in row and recomendacion_col in row:
-                rubro = row[rubro_col]
-                recomendacion = row[recomendacion_col]
-
-                if pd.notna(rubro) and pd.notna(recomendacion):
-                    df_reco = pd.concat(
-                        [df_reco, pd.DataFrame([[dimension, rubro, recomendacion]], columns=df_reco.columns)],
-                        ignore_index=True)
-
-    # Realizar el merge entre df_ciiu y df_reco
-    df_recomendaciones = pd.merge(df_ciiu, df_reco, left_on='Sección', right_on='Rubro', how='left')
 
     # Asegurar que las columnas 'CUV' y 'ciiu' sean de tipo str
     df_resultados['CUV'] = df_resultados['CUV'].astype(str)
@@ -125,7 +105,7 @@ if (uploaded_file_combined is not None and
         """
         if columna in df.columns:
             df[columna] = pd.to_datetime(df[columna], errors='coerce').dt.strftime(formato)
-            st.success(f"Columna '{columna}' procesada correctamente.")
+            #st.success(f"Columna '{columna}' procesada correctamente.")
         else:
             st.error(
                 f"La columna '{columna}' no se encontró en el DataFrame 'df_res_com'. Por favor, verifica el nombre de la columna.")
@@ -1139,3 +1119,8 @@ if (uploaded_file_combined is not None and
         else:
             st.warning(
                 "Los datos necesarios para generar el informe no están disponibles. Asegúrate de haber cargado todos los archivos requeridos.")
+
+
+
+
+
