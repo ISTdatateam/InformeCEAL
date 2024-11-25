@@ -1,5 +1,5 @@
 import streamlit as st
-import pyodbc
+import pymssql
 import pandas as pd
 
 # Configuración de la base de datos para SQL Server
@@ -7,13 +7,10 @@ server = '170.110.40.38'
 database = 'ept_modprev'
 username = 'usr_ept_modprev'
 password = 'C(Q5N:6+5sIt'
-driver = '{ODBC Driver 17 for SQL Server}'
 
 # Función para conectarse a la base de datos
 def get_db_connection():
-    return pyodbc.connect(
-        f'DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}'
-    )
+    return pymssql.connect(server=server, user=username, password=password, database=database)
 
 # Consulta SQL para obtener combinaciones únicas
 def fetch_unique_combinations():

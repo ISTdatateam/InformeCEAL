@@ -7,3 +7,4 @@ pypandoc
 python_docx
 streamlit
 openpyxl
+pymssql
