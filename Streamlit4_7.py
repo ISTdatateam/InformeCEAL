@@ -702,146 +702,133 @@ if (uploaded_file_combined is not None and
             return df
 
 
-        # Agrupar las dimensiones por GES
-        # Agrupar las dimensiones por GES correctamente desglosando valores combinados
-        ges_groups = {}
-        for dimension in dimensiones_te3:
-            ges_values = dimension['GES'].split(";")  # Dividir los valores de GES
-            for ges in ges_values:
-                ges = ges.strip()  # Eliminar espacios adicionales
-                if ges not in ges_groups:
-                    ges_groups[ges] = []
-                # Crear una copia de la dimensión para evitar duplicados en diferentes GES
-                dimension_copy = dimension.copy()
-                dimension_copy['GES'] = ges  # Asignar el GES desglosado
-                ges_groups[ges].append(dimension_copy)
+        # Procesar cada dimensión
+        for idx, dimension in enumerate(dimensiones_te3, 1):
+            st.subheader(f"{idx}. GES {dimension['GES']}: Dimension {dimension['Dimensión en riesgo']}")
+            st.write(f"{dimension['Descripción riesgo']}")
+            st.write("Preguntas clave:")
+            st.write(dimension["Preguntas clave"])
 
-        # Procesar cada GES
-        for ges, dimensiones in ges_groups.items():
-            st.header(f"GES: {ges}")
+            st.write("Interpretación del grupo de discusión:")
+            interpretacion = st.text_area(
+                label="Interpretación del grupo de discusión",
+                value="",
+                height=150,
+                key=f"interpretacion_{idx}"  # Clave única para cada text_area
+            )
 
-            # Procesar cada Dimensión dentro del GES
-            for idx, dimension in enumerate(dimensiones, 1):
-                st.subheader(f"Dimensión: {dimension['Dimensión en riesgo']}")
-                st.write(f"Descripción del riesgo: {dimension['Descripción riesgo']}")
-                st.write("Preguntas clave:")
-                st.write(dimension["Preguntas clave"])
+            # Convertir medidas propuestas en DataFrame si no existe en sesión
+            session_key = f"measures_{idx}"
+            if session_key not in st.session_state:
+                medidas_data = [
+                    {'N°': i + 1, 'GES': dimension['GES'], 'Dimensión': dimension['Dimensión en riesgo'], 'Medida': medida, 'Fecha monitoreo': '', 'Responsable': '', 'Activo': True,
+                     'Seleccionada': False}
+                    for i, medida in enumerate(dimension['Medidas propuestas'])
+                ]
+                st.session_state[session_key] = pd.DataFrame(medidas_data)
 
-                # Interpretación del grupo de discusión
-                interpretacion_key = f"interpretacion_{ges}_{idx}"
-                interpretacion = st.text_area(
-                    label="Interpretación del grupo de discusión",
-                    value="",
-                    height=150,
-                    key=interpretacion_key  # Clave única para cada text_area
+            # Listado seleccionable de medidas
+            st.write("### Medidas propuestas")
+            df = st.session_state[session_key]
+            medidas_list = [""] + df.loc[df['Activo'], 'Medida'].tolist()  # Añadir opción vacía al inicio
+            selected_measure = st.selectbox(
+                "Seleccione una medida para editar o deje vacío para crear una nueva",
+                medidas_list,
+                key=f"select_{idx}"
+            )
+
+            if selected_measure:  # Si selecciona una medida existente
+                medida_idx = df[df['Medida'] == selected_measure].index[0]
+                st.write("#### Editar medida seleccionada")
+            else:  # Si no selecciona nada, permite crear una nueva medida
+                st.write("#### Crear una nueva medida")
+                medida_idx = None
+
+            # Crear formulario para editar o crear medida
+            with st.form(key=f"form_{idx}"):
+                medida = st.text_area(
+                    "Descripción de la medida",
+                    value=df.at[medida_idx, 'Medida'] if medida_idx is not None else "",
+                    key=f"edit_medida_{idx}",
+                    height=90
+                )
+                fecha = st.date_input(
+                    "Fecha de monitoreo",
+                    value=pd.to_datetime(df.at[medida_idx, 'Fecha monitoreo']) if medida_idx is not None and df.at[
+                        medida_idx, 'Fecha monitoreo'] else None,
+                    key=f"edit_fecha_{idx}"
+                )
+                responsable = st.text_input(
+                    "Responsable",
+                    value=df.at[medida_idx, 'Responsable'] if medida_idx is not None else "",
+                    key=f"edit_responsable_{idx}"
                 )
 
-                # Gestionar medidas propuestas
-                st.write("#### Medidas propuestas")
-                session_key = f"measures_{ges}_{idx}"
-                if session_key not in st.session_state:
-                    medidas_data = [
-                        {'N°': i + 1, 'GES': ges, 'Dimensión': dimension['Dimensión en riesgo'], 'Medida': medida,
-                         'Fecha monitoreo': '', 'Responsable': '', 'Activo': True, 'Seleccionada': False}
-                        for i, medida in enumerate(dimension['Medidas propuestas'])
-                    ]
-                    st.session_state[session_key] = pd.DataFrame(medidas_data)
+                # Botón para enviar el formulario
+                submit_button = st.form_submit_button(label="Confirmar selección o crear nueva medida")
 
-                df = st.session_state[session_key]
-                medidas_list = [""] + df.loc[df['Activo'], 'Medida'].tolist()  # Añadir opción vacía al inicio
-                selected_measure = st.selectbox(
-                    "Seleccione una medida para editar o deje vacío para crear una nueva",
-                    medidas_list,
-                    key=f"select_{ges}_{idx}"
-                )
-
-                if selected_measure:  # Si selecciona una medida existente
-                    medida_idx = df[df['Medida'] == selected_measure].index[0]
-                    st.write("#### Editar medida seleccionada")
-                else:  # Si no selecciona nada, permite crear una nueva medida
-                    st.write("#### Crear una nueva medida")
-                    medida_idx = None
-
-                # Crear formulario para editar o crear medida
-                with st.form(key=f"form_{ges}_{idx}"):
-                    medida = st.text_area(
-                        "Descripción de la medida",
-                        value=df.at[medida_idx, 'Medida'] if medida_idx is not None else "",
-                        key=f"edit_medida_{ges}_{idx}",
-                        height=90
+            # Procesar la acción del formulario
+            if submit_button:
+                if medida_idx is not None:  # Editar medida existente
+                    st.session_state[session_key].at[medida_idx, 'GES'] = dimension['GES']
+                    st.session_state[session_key].at[medida_idx, 'Dimensión'] = dimension['Dimensión en riesgo']
+                    st.session_state[session_key].at[medida_idx, 'Medida'] = medida
+                    st.session_state[session_key].at[medida_idx, 'Fecha monitoreo'] = fecha.strftime(
+                        '%Y-%m-%d') if fecha else ''
+                    st.session_state[session_key].at[medida_idx, 'Responsable'] = responsable
+                    st.session_state[session_key].at[medida_idx, 'Seleccionada'] = True
+                    st.success("Medida actualizada correctamente")
+                else:  # Crear nueva medida
+                    nueva_medida = {
+                        "N°": len(st.session_state[session_key]) + 1,
+                        "Medida": medida,
+                        "Fecha monitoreo": fecha.strftime('%Y-%m-%d') if fecha else '',
+                        "Responsable": responsable,
+                        "Activo": True,
+                        "Seleccionada": True
+                    }
+                    st.session_state[session_key] = pd.concat(
+                        [st.session_state[session_key], pd.DataFrame([nueva_medida])],
+                        ignore_index=True
                     )
-                    fecha = st.date_input(
-                        "Fecha de monitoreo",
-                        value=pd.to_datetime(df.at[medida_idx, 'Fecha monitoreo']) if medida_idx is not None and df.at[
-                            medida_idx, 'Fecha monitoreo'] else None,
-                        key=f"edit_fecha_{ges}_{idx}"
-                    )
-                    responsable = st.text_input(
-                        "Responsable",
-                        value=df.at[medida_idx, 'Responsable'] if medida_idx is not None else "",
-                        key=f"edit_responsable_{ges}_{idx}"
-                    )
+                    st.success("Nueva medida creada correctamente")
 
-                    # Botón para enviar el formulario
-                    submit_button = st.form_submit_button(label="Confirmar selección o crear nueva medida")
-
-                # Procesar la acción del formulario
-                if submit_button:
-                    if medida_idx is not None:  # Editar medida existente
-                        st.session_state[session_key].at[medida_idx, 'Medida'] = medida
-                        st.session_state[session_key].at[medida_idx, 'Fecha monitoreo'] = fecha.strftime(
-                            '%Y-%m-%d') if fecha else ''
-                        st.session_state[session_key].at[medida_idx, 'Responsable'] = responsable
-                        st.session_state[session_key].at[medida_idx, 'Seleccionada'] = True
-                        st.success("Medida actualizada correctamente")
-                    else:  # Crear nueva medida
-                        nueva_medida = {
-                            "N°": len(st.session_state[session_key]) + 1,
-                            "Medida": medida,
-                            "Fecha monitoreo": fecha.strftime('%Y-%m-%d') if fecha else '',
-                            "Responsable": responsable,
-                            "Activo": True,
-                            "Seleccionada": True
-                        }
-                        st.session_state[session_key] = pd.concat(
-                            [st.session_state[session_key], pd.DataFrame([nueva_medida])],
-                            ignore_index=True
-                        )
-                        st.success("Nueva medida creada correctamente")
 
         # Nueva Sección: Resumen de medidas confirmadas
         st.header("Resumen de medidas confirmadas")
         confirmed_measures = []
-        for ges, dimensiones in ges_groups.items():
-            for idx, dimension in enumerate(dimensiones, 1):
-                session_key = f"measures_{ges}_{idx}"
-                if session_key in st.session_state:
-                    temp_df = st.session_state[session_key].copy()
-                    temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
-                    temp_df['Dimensión'] = dimension["Dimensión en riesgo"]
-                    temp_df['GES'] = ges
-                    confirmed_measures.append(temp_df)
 
-        confirmed_measures = []
-        for ges, dimensiones in ges_groups.items():
-            for idx, dimension in enumerate(dimensiones, 1):
-                session_key = f"measures_{ges}_{idx}"
-                if session_key in st.session_state:
-                    temp_df = st.session_state[session_key].copy()
-                    temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
-                    temp_df['Dimensión'] = dimension["Dimensión en riesgo"]
-                    temp_df['GES'] = ges
-                    confirmed_measures.append(temp_df)
+        for idx in range(1, len(dimensiones_te3) + 1):
+            session_key = f"measures_{idx}"
+            if session_key in st.session_state:
+                temp_df = st.session_state[session_key].copy()
+                temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
+                temp_df['Dimensión'] = dimensiones_te3[idx - 1]["Dimensión en riesgo"]
+                confirmed_measures.append(temp_df)
 
         if confirmed_measures:
-            summary_df = pd.concat(confirmed_measures, ignore_index=True)
-            if not summary_df.empty:
+            df_porcentajes_niveles = pd.concat(confirmed_measures, ignore_index=True)
+            if not df_porcentajes_niveles.empty:
                 st.write("Las siguientes medidas han sido confirmadas hasta el momento:")
-                st.dataframe(summary_df[['GES', 'Dimensión', 'Medida', 'Fecha monitoreo', 'Responsable']])
+                st.dataframe(df_porcentajes_niveles[['GES', 'Dimensión', 'Medida', 'Fecha monitoreo', 'Responsable']])
             else:
                 st.info("No hay medidas confirmadas hasta el momento.")
         else:
             st.info("No hay medidas confirmadas hasta el momento.")
+
+
+        # Botón para guardar datos en un archivo
+        st.write("### Guardar Datos")
+        if st.button("Guardar medidas seleccionadas en archivo"):
+            all_measures = []
+            for idx in range(1, len(dimensiones_te3) + 1):
+                session_key = f"measures_{idx}"
+                if session_key in st.session_state:
+                    temp_df = st.session_state[session_key].copy()
+                    temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
+                    temp_df['Dimensión'] = dimensiones_te3[idx - 1]["Dimensión en riesgo"]
+                    all_measures.append(temp_df)
+            final_df = pd.concat(all_measures, ignore_index=True)
 
             # Exportar como CSV todo lo guardado
             if not final_df.empty:
