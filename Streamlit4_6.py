@@ -9,10 +9,6 @@ from docx import Document
 from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
-from openpyxl.worksheet.dimensions import Dimension
-import streamlit as st
-import pandas as pd
-import numpy as np
 
 
 # Configuración inicial de la aplicación
@@ -24,10 +20,10 @@ Por favor, cargue los archivos necesarios y siga las instrucciones.
 """)
 
 # Sección 1: Carga de archivos
-#st.header("1. Carga de archivos")
+st.header("1. Carga de archivos")
 
 # Cargar el archivo Excel con múltiples hojas
-#uploaded_file_combined = st.file_uploader("Selecciona el archivo 'combined_output.xlsx'", type="xlsx")
+uploaded_file_combined = st.file_uploader("Selecciona el archivo 'combined_output.xlsx'", type="xlsx")
 
 # Cargar los archivos de recomendaciones y códigos CIIU
 # uploaded_file_rec = st.file_uploader("Selecciona el archivo 'Recomendaciones2.xlsx'", type="xlsx")
@@ -37,7 +33,6 @@ Por favor, cargue los archivos necesarios y siga las instrucciones.
 # uploaded_file_resultados = st.file_uploader("Selecciona el archivo 'resultados.xlsx'", type="xlsx")
 
 #precargas
-uploaded_file_combined = "combined_output.xlsx"
 uploaded_file_rec = 'Recomendaciones.xlsx'
 uploaded_file_ciiu = 'ciiu.xlsx'
 uploaded_file_resultados = 'resultados.xlsx'
@@ -313,7 +308,8 @@ if (uploaded_file_combined is not None and
                         run.font.size = Pt(9)  # Ajusta el tamaño de la fuente
 
 
-    def agregar_tabla_ges_por_dimension_streamlit(df, cuv, df_recomendaciones, df_porcentajes_niveles, top_glosas, df_res_com):
+    def agregar_tabla_ges_por_dimension_streamlit(df, cuv, df_recomendaciones, df_resultados_porcentaje,
+                                                  df_porcentajes_niveles, top_glosas, df_res_com):
         """
         Prepara una estructura de datos con medidas propuestas por dimensión y retorna una lista de diccionarios.
         """
@@ -323,6 +319,9 @@ if (uploaded_file_combined is not None and
             return []
         if not isinstance(df_recomendaciones, pd.DataFrame):
             st.error("El parámetro 'df_recomendaciones' debe ser un DataFrame.")
+            return []
+        if not isinstance(df_resultados_porcentaje, pd.DataFrame):
+            st.error("El parámetro 'df_resultados_porcentaje' debe ser un DataFrame.")
             return []
         if not isinstance(df_porcentajes_niveles, pd.DataFrame):
             st.error("El parámetro 'df_porcentajes_niveles' debe ser un DataFrame.")
@@ -367,12 +366,6 @@ if (uploaded_file_combined is not None and
             st.error(f"No se encontró el valor de CIIU para el CUV {cuv}.")
             return []
 
-        df_porcentajes_niveles['Descripción'] = df_porcentajes_niveles.apply(
-            lambda row: f"{row['Porcentaje']}% Riesgo {row['Nivel']}, {row['Respuestas']} personas"
-            if row['Puntaje'] in [1, 2] else "",
-            axis=1
-        )
-
         # Asegurarse de que 'Descripción' sea string y reemplazar NaN
         df_resultados_porcentaje['Descripción'] = df_resultados_porcentaje['Descripción'].fillna('').astype(str)
 
@@ -391,8 +384,17 @@ if (uploaded_file_combined is not None and
                 ]['Recomendación'].tolist()
             medidas_propuestas = recomendaciones if recomendaciones else ['N/A']
 
-            # Obtener las descripciones desde df_porcentajes_niveles
-            descripcion = [
+            # Obtener la descripción relacionada desde df_resultados_porcentaje
+            descripcion = df_resultados_porcentaje[
+                (df_resultados_porcentaje['Dimensión'] == dim) &
+                (df_resultados_porcentaje['CUV'] == cuv)
+                ]['Descripción'].values
+
+            # Filtrar solo cadenas no vacías
+            descripcion = [desc for desc in descripcion if isinstance(desc, str) and desc.strip() != '']
+
+            # Obtener las descripciones adicionales desde df_porcentajes_niveles
+            descripcion2 = [
                 f"{desc} en {ges}"
                 for desc in df_porcentajes_niveles[
                     (df_porcentajes_niveles['Dimensión'] == dim) &
@@ -402,8 +404,26 @@ if (uploaded_file_combined is not None and
                     ]['Descripción'].values
             ]
 
-            descripcion_text = '\n'.join(descripcion).replace("[", "").replace("]", "").replace("'",
-                                                                                                  "") if descripcion else ""
+            descripcion2_text = '\n'.join(descripcion2).replace("[", "").replace("]", "").replace("'",
+                                                                                                  "") if descripcion2 else ""
+
+            # Construir descripcion_text
+            descripcion_text = ""
+            if len(descripcion) > 0 and isinstance(descripcion[0], str) and len(descripcion[0]) > 0:
+                descripcion_text = descripcion[0] + " para todo el centro de trabajo\n"
+            elif len(descripcion) > 1 and isinstance(descripcion[1], str) and len(descripcion[1]) > 0:
+                descripcion_text = descripcion[1] + " para todo el centro de trabajo\n"
+            elif len(descripcion) > 2 and isinstance(descripcion[2], str) and len(descripcion[2]) > 0:
+                descripcion_text = descripcion[2] + " para todo el centro de trabajo\n"
+            else:
+                descripcion_text = ""
+
+            # Verificar si hay múltiples GES
+            unique_te3 = df[df['CUV'] == cuv]['TE3'].dropna().unique()
+            noges = 1 if len(unique_te3) < 2 else 0
+            if noges == 1:
+                descripcion2_text = ""
+                st.info(f"Solo hay un GES para el CUV {cuv}. No se generarán recomendaciones por GES.")
 
             # Obtener las preguntas clave desde top_glosas
             filtro_glosas = top_glosas[(top_glosas['Dimensión'] == dim) & (top_glosas['CUV'] == cuv)]
@@ -412,11 +432,9 @@ if (uploaded_file_combined is not None and
 
             # Agregar la dimensión a la lista
             dimensiones.append({
-                'GES': ges,
-                'Dimensión en riesgo': dim,
-                'Descripción riesgo': descripcion_text.strip(),
+                'Dimensión en riesgo': descripcion_text.strip(),
                 'Preguntas clave': preguntas_text.strip(),
-                'Interpretación del grupo de discusión': "",
+                'Interpretación del grupo de discusión': '(COMPLETAR)',
                 'Medidas propuestas': medidas_propuestas  # Lista de medidas
             })
 
@@ -690,9 +708,13 @@ if (uploaded_file_combined is not None and
         st.header("5. Prescripciones de medidas")
 
         dimensiones_te3 = agregar_tabla_ges_por_dimension_streamlit(df_res_dimTE3, selected_cuv, df_recomendaciones,
-                                            df_porcentajes_niveles, top_glosas, df_res_com)
+                                            df_resultados_porcentaje, df_porcentajes_niveles, top_glosas, df_res_com)
 
         #st.session_state.dimensiones_te3 = dimensiones_te3
+
+        import streamlit as st
+        import pandas as pd
+        import numpy as np
 
 
         # Función para actualizar la numeración
@@ -704,24 +726,18 @@ if (uploaded_file_combined is not None and
 
         # Procesar cada dimensión
         for idx, dimension in enumerate(dimensiones_te3, 1):
-            st.subheader(f"{idx}. GES {dimension['GES']}: Dimension {dimension['Dimensión en riesgo']}")
-            st.write(f"{dimension['Descripción riesgo']}")
+            st.subheader(f"{idx}. {dimension['Dimensión en riesgo']}")
             st.write("Preguntas clave:")
             st.write(dimension["Preguntas clave"])
 
             st.write("Interpretación del grupo de discusión:")
-            interpretacion = st.text_area(
-                label="Interpretación del grupo de discusión",
-                value="",
-                height=150,
-                key=f"interpretacion_{idx}"  # Clave única para cada text_area
-            )
+            st.write(dimension["Interpretación del grupo de discusión"])
 
             # Convertir medidas propuestas en DataFrame si no existe en sesión
             session_key = f"measures_{idx}"
             if session_key not in st.session_state:
                 medidas_data = [
-                    {'N°': i + 1, 'GES': dimension['GES'], 'Dimensión': dimension['Dimensión en riesgo'], 'Medida': medida, 'Fecha monitoreo': '', 'Responsable': '', 'Activo': True,
+                    {'N°': i + 1, 'Medida': medida, 'Fecha monitoreo': '', 'Responsable': '', 'Activo': True,
                      'Seleccionada': False}
                     for i, medida in enumerate(dimension['Medidas propuestas'])
                 ]
@@ -770,8 +786,6 @@ if (uploaded_file_combined is not None and
             # Procesar la acción del formulario
             if submit_button:
                 if medida_idx is not None:  # Editar medida existente
-                    st.session_state[session_key].at[medida_idx, 'GES'] = dimension['GES']
-                    st.session_state[session_key].at[medida_idx, 'Dimensión'] = dimension['Dimensión en riesgo']
                     st.session_state[session_key].at[medida_idx, 'Medida'] = medida
                     st.session_state[session_key].at[medida_idx, 'Fecha monitoreo'] = fecha.strftime(
                         '%Y-%m-%d') if fecha else ''
@@ -792,30 +806,6 @@ if (uploaded_file_combined is not None and
                         ignore_index=True
                     )
                     st.success("Nueva medida creada correctamente")
-
-
-        # Nueva Sección: Resumen de medidas confirmadas
-        st.header("Resumen de medidas confirmadas")
-        confirmed_measures = []
-
-        for idx in range(1, len(dimensiones_te3) + 1):
-            session_key = f"measures_{idx}"
-            if session_key in st.session_state:
-                temp_df = st.session_state[session_key].copy()
-                temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
-                temp_df['Dimensión'] = dimensiones_te3[idx - 1]["Dimensión en riesgo"]
-                confirmed_measures.append(temp_df)
-
-        if confirmed_measures:
-            df_porcentajes_niveles = pd.concat(confirmed_measures, ignore_index=True)
-            if not df_porcentajes_niveles.empty:
-                st.write("Las siguientes medidas han sido confirmadas hasta el momento:")
-                st.dataframe(df_porcentajes_niveles[['GES', 'Dimensión', 'Medida', 'Fecha monitoreo', 'Responsable']])
-            else:
-                st.info("No hay medidas confirmadas hasta el momento.")
-        else:
-            st.info("No hay medidas confirmadas hasta el momento.")
-
 
         # Botón para guardar datos en un archivo
         st.write("### Guardar Datos")
@@ -843,8 +833,27 @@ if (uploaded_file_combined is not None and
             else:
                 st.warning("No se han seleccionado medidas para guardar.")
 
+        # Nueva Sección: Resumen de medidas confirmadas
+        st.header("Resumen de medidas confirmadas")
+        confirmed_measures = []
 
+        for idx in range(1, len(dimensiones_te3) + 1):
+            session_key = f"measures_{idx}"
+            if session_key in st.session_state:
+                temp_df = st.session_state[session_key].copy()
+                temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
+                temp_df['Dimensión'] = dimensiones_te3[idx - 1]["Dimensión en riesgo"]
+                confirmed_measures.append(temp_df)
 
+        if confirmed_measures:
+            summary_df = pd.concat(confirmed_measures, ignore_index=True)
+            if not summary_df.empty:
+                st.write("Las siguientes medidas han sido confirmadas hasta el momento:")
+                st.dataframe(summary_df[['Dimensión', 'Medida', 'Fecha monitoreo', 'Responsable']])
+            else:
+                st.info("No hay medidas confirmadas hasta el momento.")
+        else:
+            st.info("No hay medidas confirmadas hasta el momento.")
 
         # Sección 6: Generación del informe en Word
         st.header("6. Generación del informe en Word")
