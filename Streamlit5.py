@@ -774,7 +774,17 @@ if (uploaded_file_combined is not None and
                 st.write("#### Crear una nueva medida")
                 medida_idx = None
 
-            # Editar campos de la medida seleccionada o nueva
+            # Inicializa session_state para manejar cambios en fecha y responsable
+            fecha_key = f"edit_fecha_{idx}"
+            responsable_key = f"edit_responsable_{idx}"
+
+            # Establecer valores iniciales en session_state para evitar recargas innecesarias
+            if fecha_key not in st.session_state:
+                st.session_state[fecha_key] = df.at[medida_idx, 'Fecha monitoreo'] if medida_idx is not None else None
+            if responsable_key not in st.session_state:
+                st.session_state[responsable_key] = df.at[medida_idx, 'Responsable'] if medida_idx is not None else ""
+
+            # Campos de entrada conectados a session_state
             medida = st.text_area(
                 "Descripción de la medida",
                 value=df.at[medida_idx, 'Medida'] if medida_idx is not None else "",
@@ -783,14 +793,13 @@ if (uploaded_file_combined is not None and
             )
             fecha = st.date_input(
                 "Fecha de monitoreo",
-                value=df.at[medida_idx, 'Fecha monitoreo'] if medida_idx is not None and df.at[
-                    medida_idx, 'Fecha monitoreo'] else None,
-                key=f"edit_fecha_{idx}"
+                value=st.session_state[fecha_key],
+                key=fecha_key
             )
             responsable = st.text_input(
                 "Responsable",
-                value=df.at[medida_idx, 'Responsable'] if medida_idx is not None else "",
-                key=f"edit_responsable_{idx}"
+                value=st.session_state[responsable_key],
+                key=responsable_key
             )
 
             # Confirmar selección o creación de medida
@@ -800,7 +809,7 @@ if (uploaded_file_combined is not None and
                     st.session_state[session_key].at[medida_idx, 'Fecha monitoreo'] = fecha
                     st.session_state[session_key].at[medida_idx, 'Responsable'] = responsable
                     st.session_state[session_key].at[medida_idx, 'Seleccionada'] = True
-                    st.success("Etiqueta actualizada correctamente")
+                    st.success("Medida actualizada correctamente.")
                 else:  # Crear nueva medida
                     nueva_medida = {
                         "N°": len(st.session_state[session_key]) + 1,
@@ -814,7 +823,7 @@ if (uploaded_file_combined is not None and
                         [st.session_state[session_key], pd.DataFrame([nueva_medida])],
                         ignore_index=True
                     )
-                    st.success("Nueva medida creada correctamente")
+                    st.success("Nueva medida creada correctamente.")
 
         # Botón para guardar datos en un archivo
         st.write("### Guardar Datos")
@@ -863,10 +872,6 @@ if (uploaded_file_combined is not None and
                 st.info("No hay medidas confirmadas hasta el momento.")
         else:
             st.info("No hay medidas confirmadas hasta el momento.")
-
-
-
-
 
         # Sección 6: Generación del informe en Word
         st.header("6. Generación del informe en Word")
