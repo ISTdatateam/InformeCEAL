@@ -732,11 +732,11 @@ if (uploaded_file_combined is not None and
 
         #st.session_state.dimensiones_te3 = dimensiones_te3
 
+
         def actualizar_numeracion(df):
             df = df.reset_index(drop=True)
             df['N°'] = df.index + 1
             return df
-
 
         # Procesar cada dimensión
         for idx, dimension in enumerate(dimensiones_te3, 1):
@@ -751,122 +751,100 @@ if (uploaded_file_combined is not None and
             session_key = f"measures_{idx}"
             if session_key not in st.session_state:
                 medidas_data = [
-                    {'N°': i + 1, 'Medida': medida, 'Fecha monitoreo': '', 'Responsable': '', 'Activo': True,
-                     'Seleccionada': False}
+                    {'N°': i + 1, 'Medida': medida, 'Fecha monitoreo': '', 'Responsable': '', 'Activo': True}
                     for i, medida in enumerate(dimension['Medidas propuestas'])
                 ]
                 st.session_state[session_key] = pd.DataFrame(medidas_data)
 
-            # Listado seleccionable de medidas
+            # Renderizar tarjetas
             st.write("### Medidas propuestas")
-            df = st.session_state[session_key]
-            medidas_list = [""] + df.loc[df['Activo'], 'Medida'].tolist()  # Añadir opción vacía al inicio
-            selected_measure = st.selectbox(
-                "Seleccione una medida para editar o deje vacío para crear una nueva",
-                medidas_list,
-                key=f"select_{idx}"
-            )
+            df = st.session_state[session_key].copy()
 
-            if selected_measure:  # Si selecciona una medida existente
-                medida_idx = df[df['Medida'] == selected_measure].index[0]
-                st.write("#### Editar medida seleccionada")
-            else:  # Si no selecciona nada, permite crear una nueva medida
-                st.write("#### Crear una nueva medida")
-                medida_idx = None
+            for i, row in df.iterrows():
+                st.markdown(f"#### Medida {row['N°']}")
 
-            # Editar campos de la medida seleccionada o nueva
-            medida = st.text_area(
-                "Descripción de la medida",
-                value=df.at[medida_idx, 'Medida'] if medida_idx is not None else "",
-                key=f"edit_medida_{idx}",
-                height=90
-            )
-            fecha = st.date_input(
-                "Fecha de monitoreo",
-                value=df.at[medida_idx, 'Fecha monitoreo'] if medida_idx is not None and df.at[
-                    medida_idx, 'Fecha monitoreo'] else None,
-                key=f"edit_fecha_{idx}"
-            )
-            responsable = st.text_input(
-                "Responsable",
-                value=df.at[medida_idx, 'Responsable'] if medida_idx is not None else "",
-                key=f"edit_responsable_{idx}"
-            )
+                # Desactivar campos si la medida está eliminada
+                desactivado = not st.session_state[session_key].at[i, 'Activo']
 
-            # Confirmar selección o creación de medida
-            if st.button("Confirmar selección o crear nueva medida", key=f"confirmar_{idx}"):
-                if medida_idx is not None:  # Editar medida existente
-                    st.session_state[session_key].at[medida_idx, 'Medida'] = medida
-                    st.session_state[session_key].at[medida_idx, 'Fecha monitoreo'] = fecha
-                    st.session_state[session_key].at[medida_idx, 'Responsable'] = responsable
-                    st.session_state[session_key].at[medida_idx, 'Seleccionada'] = True
-                    st.success("Etiqueta actualizada correctamente")
-                else:  # Crear nueva medida
-                    nueva_medida = {
-                        "N°": len(st.session_state[session_key]) + 1,
-                        "Medida": medida,
-                        "Fecha monitoreo": fecha,
-                        "Responsable": responsable,
-                        "Activo": True,
-                        "Seleccionada": True
-                    }
-                    st.session_state[session_key] = pd.concat(
-                        [st.session_state[session_key], pd.DataFrame([nueva_medida])],
-                        ignore_index=True
+                # Botón para eliminar medida (desactivado si ya está eliminada)
+                if not desactivado:
+                    if st.button(f"Eliminar medida {row['N°']}", key=f"eliminar_{idx}_{i}"):
+                        st.session_state[session_key].at[i, 'Activo'] = False  # Marcar como eliminada
+                        st.session_state[session_key] = actualizar_numeracion(st.session_state[session_key])
+
+                # Campo editable con múltiples líneas
+                medida = st.text_area(
+                    "Descripción de la medida",
+                    value=row['Medida'],
+                    key=f"medida_{idx}_{i}",
+                    height=90,
+                    disabled=desactivado  # Bloquear si está eliminada
+                )
+                # Guardar cambios en el DataFrame
+                st.session_state[session_key].at[i, 'Medida'] = medida
+
+                col1, col2 = st.columns([1, 1])
+
+                with col1:
+                    fecha = st.date_input(
+                        "Fecha de monitoreo",
+                        value=row['Fecha monitoreo'] if row['Fecha monitoreo'] else None,
+                        key=f"fecha_{idx}_{i}",
+                        disabled=desactivado  # Bloquear si está eliminada
                     )
-                    st.success("Nueva medida creada correctamente")
+                    st.session_state[session_key].at[i, 'Fecha monitoreo'] = fecha
+
+                with col2:
+                    responsable = st.text_input(
+                        "Responsable",
+                        value=row['Responsable'],
+                        key=f"responsable_{idx}_{i}",
+                        disabled=desactivado  # Bloquear si está eliminada
+                    )
+                    st.session_state[session_key].at[i, 'Responsable'] = responsable
+
+                # Mostrar mensaje si está eliminada
+                if desactivado:
+                    st.write(f"**Medida eliminada ⚠️**", unsafe_allow_html=True)
+
+            # Botón para agregar nueva medida
+            if st.button(f"Agregar nueva medida {idx}", key=f"add_{idx}"):
+                nueva_medida = {"N°": len(st.session_state[session_key]) + 1, "Medida": "", "Fecha monitoreo": "",
+                                "Responsable": "", "Activo": True}
+                st.session_state[session_key] = pd.concat(
+                    [st.session_state[session_key], pd.DataFrame([nueva_medida])], ignore_index=True
+                )
+                st.session_state[session_key] = actualizar_numeracion(st.session_state[session_key])
 
         # Botón para guardar datos en un archivo
         st.write("### Guardar Datos")
-        if st.button("Guardar medidas seleccionadas en archivo"):
+        if st.button("Guardar medidas en archivo"):
             all_measures = []
             for idx in range(1, len(dimensiones_te3) + 1):
                 session_key = f"measures_{idx}"
                 if session_key in st.session_state:
                     temp_df = st.session_state[session_key].copy()
-                    temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
                     temp_df['Dimensión'] = dimensiones_te3[idx - 1]["Dimensión en riesgo"]
                     all_measures.append(temp_df)
             final_df = pd.concat(all_measures, ignore_index=True)
 
             # Exportar como CSV
-            if not final_df.empty:
-                csv = final_df.to_csv(index=False)
-                st.download_button(
-                    label="Descargar archivo CSV",
-                    data=csv,
-                    file_name="medidas_seleccionadas.csv",
-                    mime="text/csv",
-                )
-                st.success("Datos guardados correctamente.")
-            else:
-                st.warning("No se han seleccionado medidas para guardar.")
+            csv = final_df.to_csv(index=False)
+            st.download_button(
+                label="Descargar archivo CSV",
+                data=csv,
+                file_name="medidas.csv",
+                mime="text/csv",
+            )
+            st.success("Datos guardados correctamente.")
 
-        # Nueva Sección: Resumen de medidas confirmadas
-        st.header("Resumen de medidas confirmadas")
-        confirmed_measures = []
 
-        for idx in range(1, len(dimensiones_te3) + 1):
-            session_key = f"measures_{idx}"
-            if session_key in st.session_state:
-                temp_df = st.session_state[session_key].copy()
-                temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
-                temp_df['Dimensión'] = dimensiones_te3[idx - 1]["Dimensión en riesgo"]
-                confirmed_measures.append(temp_df)
 
-        if confirmed_measures:
-            summary_df = pd.concat(confirmed_measures, ignore_index=True)
-            if not summary_df.empty:
-                st.write("Las siguientes medidas han sido confirmadas hasta el momento:")
-                st.dataframe(summary_df[['Dimensión', 'Medida', 'Fecha monitoreo', 'Responsable']])
-            else:
-                st.info("No hay medidas confirmadas hasta el momento.")
+            st.success("Datos guardados correctamente.")
+            print (final_df)
+
         else:
-            st.info("No hay medidas confirmadas hasta el momento.")
-
-
-
-
+            st.info("No hay dimensiones en riesgo para este GES.")
 
         # Sección 6: Generación del informe en Word
         st.header("6. Generación del informe en Word")
