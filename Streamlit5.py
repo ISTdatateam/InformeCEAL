@@ -830,7 +830,7 @@ if (uploaded_file_combined is not None and
                     all_measures.append(temp_df)
             final_df = pd.concat(all_measures, ignore_index=True)
 
-            # Exportar como CSV
+            # Exportar como CSV todo lo guardado
             if not final_df.empty:
                 csv = final_df.to_csv(index=False)
                 st.download_button(
