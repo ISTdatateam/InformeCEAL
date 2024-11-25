@@ -2,29 +2,65 @@ import os
 import pandas as pd
 import re
 import logging
-
+import pyodbc
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Configuración de la base de datos para SQL Server
+server = '170.110.40.38'
+database = 'ept_modprev'
+username = 'usr_ept_modprev'
+password = 'C(Q5N:6+5sIt'
+driver = '{ODBC Driver 17 for SQL Server}'
+
+
+# Función para conectarse a la base de datos
+def get_db_connection():
+    try:
+        connection = pyodbc.connect(
+            f'DRIVER={driver};'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={username};'
+            f'PWD={password}'
+        )
+        return connection
+    except pyodbc.Error as e:
+        st.error(f"Error al conectar a la base de datos: {e}")
+        return None
+
+
+# Función para cargar los datos desde la tabla 'archivo_combinado'
+def load_data():
+    query = "SELECT * FROM informeCEAL_combinado"
+    connection = get_db_connection()
+
+    if connection is not None:
+        try:
+            df = pd.read_sql(query, connection)
+            return df
+        except pd.io.sql.DatabaseError as e:
+            st.error(f"Error al ejecutar la consulta SQL: {e}")
+            return pd.DataFrame()  # Retorna un DataFrame vacío en caso de error
+        finally:
+            connection.close()
+    else:
+        return pd.DataFrame()  # Retorna un DataFrame vacío si la conexión falla
+
+
+# Cargar el DataFrame
+combined_df_base_completa = load_data()
+combined_df_base_completa.rename(columns={'CdT': 'CDT_Glosa','DD1': 'Genero', 'DD2': 'Edad', 'TE1': 'CdT','TE1.1': 'TE1'}, inplace=True)
+combined_df_base_completa['Genero'] = combined_df_base_completa['Genero'].replace({1: 'Hombre', 2: 'Mujer', 3: 'NcOtro', 4: 'NcOtro'})
+print(combined_df_base_completa.columns.tolist())
+
+'''
 folder_path = r'H:\Mi unidad\SM-CEAL\Reporteria masiva\tablas'
 output_path = r'H:\Mi unidad\SM-CEAL\Reporteria masiva\salida_test.xlsx'
 resultados_path = r'H:\Mi unidad\SM-CEAL\Reporteria masiva\database.xlsx'
 output_archivos = r'H:\Mi unidad\SM-CEAL\Reporteria masiva'
-
-
-
-
-
-
-# Obtener una lista de todos los archivos .xlsx en la carpeta
-file_list = [f for f in os.listdir(folder_path) if f.endswith('.xlsx')]
-
-# Listas para almacenar los datos de cada hoja
-data_frames_base_completa = []
-resumen_info = []
-ct_values = {}
-cuv_values = {}
+'''
 
 ceal = [
     {"Coddim": "CT", "Dimensión": "Carga de trabajo", "Codpreg": "QD1",
@@ -195,74 +231,10 @@ risk_intervals = [
 df_risk_intervals = pd.DataFrame(risk_intervals)
 
 
-def rename_duplicate_columns(df):
-    # Renombrar la columna 5 como 'CdT' si se llama 'TE1'
-    if df.columns[2] == 'TE1':
-        df.columns.values[2] = 'CdT'
-    # Renombrar la columna 62 como 'TE1' si no se llama 'TE1'
-    if df.columns[59] != 'TE1':
-        df.columns.values[59] = 'TE1'
-
-    col_count = df.columns.value_counts()
-    duplicate_cols = col_count[col_count > 1].index.tolist()
-
-    for col in duplicate_cols:
-        duplicate_indices = [i for i, x in enumerate(df.columns) if x == col]
-        for index, i in enumerate(duplicate_indices):
-            if index == 0 and col == 'TE1':
-                continue
-            df.columns.values[i] = f"{col}_{index}" if index > 0 else col
-    return df
-
-
-for file_name in file_list:
-    file_path = os.path.join(folder_path, file_name)
-
-    # Leer la hoja "BaseCompleta"
-    try:
-        df_base_completa = pd.read_excel(file_path, sheet_name='BaseCompleta', header=1, usecols='C:CO')
-        df_base_completa = rename_duplicate_columns(df_base_completa)
-        df_base_completa.rename(columns={'DD1': 'Genero', 'DD2': 'Edad'}, inplace=True)
-        df_base_completa['Genero'] = df_base_completa['Genero'].replace(
-            {1: 'Hombre', 2: 'Mujer', 3: 'NcOtro', 4: 'NcOtro'})
-        #       ct_values[file_name] = df_base_completa['CdT'].iloc[0]
-
-        # Extraer RUT y CUV del nombre del archivo
-        rut_match = re.search(r'\d{8}-[\dkK]', file_name)
-        cuv_match = re.search(r'(\d+)(?=\.xlsx)', file_name)
-        cdt_match = re.search(r'\d{8}-[\dkK]-(.*?)-\d+\.xlsx', file_name)
-
-        # Imprimir resultados de las coincidencias de regex
-        print(f"Procesando archivo: {file_name}")
-        print(f"{rut_match}")
-        print(f"{cuv_match}")
-        print(f"{cdt_match}")
-
-        if rut_match and cuv_match and cdt_match:
-            rut = rut_match.group(0)
-            cuv = cuv_match.group(1)
-            cdtm = cdt_match.group(1)
-            print(f"Archivo: {file_name} - RUT: {rut} - CUV: {cuv} - CDT: {cdtm}")
-            df_base_completa['RUT_empleador'] = rut
-            df_base_completa['CUV'] = cuv
-            df_base_completa['CDT_glosa'] = cdtm
-        else:
-            print(f"Error extrayendo RUT o CUV del archivo: {file_name}")
-
-        ct_values[file_name] = df_base_completa['CUV'].iloc[0]
-        data_frames_base_completa.append(df_base_completa)
-
-    except Exception as e:
-        print(f"Error procesando el archivo {file_name}: {e}")
-
-# Combinar todos los DataFrames de la hoja "BaseCompleta" en uno solo
-combined_df_base_completa = pd.concat(data_frames_base_completa, ignore_index=True)
-
-
 # Función para comparar y modificar los campos
 def compare_and_concat(row):
     cdt = row['CdT'].strip()
-    cdt_glosa = row['CDT_glosa'].strip()
+    cdt_glosa = row['CDT_Glosa'].strip()
 
     if cdt != cdt_glosa:
         return f"{cdt_glosa} - {cdt}"
@@ -271,7 +243,7 @@ def compare_and_concat(row):
 
 # Aplicar la función a cada fila del DataFrame y eliminar la columna 'CDT_glosa'
 combined_df_base_completa['CdT'] = combined_df_base_completa.apply(compare_and_concat, axis=1)
-combined_df_base_completa = combined_df_base_completa.drop(columns=['CDT_glosa'])
+combined_df_base_completa = combined_df_base_completa.drop(columns=['CDT_Glosa'])
 
 # Crear una nueva columna para los rangos de edad
 bins = [18, 25, 36, 49, float('inf')]
