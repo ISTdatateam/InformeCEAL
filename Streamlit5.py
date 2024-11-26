@@ -33,6 +33,9 @@ Por favor, cargue los archivos necesarios y siga las instrucciones.
 
 # Cargar el archivo 'resultados.xlsx'
 # uploaded_file_resultados = st.file_uploader("Selecciona el archivo 'resultados.xlsx'", type="xlsx")
+# Estamos casi a punto de salir a produccion, esta seria la version test.
+
+
 
 #precargas
 uploaded_file_combined = "combined_output.xlsx"
