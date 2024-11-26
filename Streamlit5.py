@@ -424,7 +424,9 @@ if (uploaded_file_combined is not None and
         return dimensiones
 
 
-    def mostrar_datos(datos):
+
+
+    def mostrar_datos(datos, estado):
         """
         Muestra los datos de una empresa formateados en Markdown.
 
@@ -440,6 +442,7 @@ if (uploaded_file_combined is not None and
         **Fecha de activación del cuestionario:** {datos.get('Fecha Inicio', 'N/A')}  
         **Fecha de cierre del cuestionario:** {datos.get('Fecha Fin', 'N/A')}  
         **Universo de trabajadores de evaluación:** {datos.get('Nº Trabajadores CT', 'N/A')}  
+        **Nivel de riesgo:** {estado.get('Riesgo', 'N/A')}
         """
         st.markdown(contenido)
 
@@ -454,12 +457,17 @@ if (uploaded_file_combined is not None and
     datos = df_res_com[df_res_com['CUV'] == selected_cuv]
     estado = summary_df[summary_df['CUV'] == selected_cuv]
 
+    if not estado.empty:
+        estado_riesgo = estado.iloc[0].to_dict()  # Convertir a diccionario para pasarlo a la función
+    else:
+        estado_riesgo = {'Riesgo': 'N/A'}
+
     fecha_fin = pd.to_datetime(datos.get('Fecha Fin'))
 
     # Mostrar la información de la empresa
     st.subheader("Información de la Empresa")
     for _, row in datos.iterrows():
-        mostrar_datos(row.to_dict())
+        mostrar_datos(row.to_dict(), estado_riesgo)
         st.markdown("---")  # Línea separadora entre empresas
 
 
@@ -949,10 +957,10 @@ if (uploaded_file_combined is not None and
         else:
             st.info("No hay medidas confirmadas hasta el momento.")
 
-
         # Exportar como CSV las interpretaciones ingresadas
         if 'interpretaciones_df' in locals() and not interpretaciones_df.empty:
             csv_interpretaciones = interpretaciones_df.to_csv(index=False)
+            print(interpretaciones_df)
             st.download_button(
                 label="Descargar archivo CSV con Interpretaciones",
                 data=csv_interpretaciones,
@@ -964,6 +972,7 @@ if (uploaded_file_combined is not None and
         # Exportar como CSV
         if 'confirmadas_df' in locals() and not confirmadas_df.empty:
             csv = confirmadas_df.to_csv(index=False)
+            print(confirmadas_df)
             st.download_button(
                 label="Descargar archivo CSV con Medidas Confirmadas",
                 data=csv,
@@ -990,7 +999,23 @@ def establecer_orientacion_apaisada(doc):
     section.left_margin = Cm(1)
     section.right_margin = Cm(1)
 
-def generar_contenido_word(datos, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df):
+# Sección 6: Generación del informe en Word
+st.header("6. Generación del informe en Word")
+
+def establecer_orientacion_apaisada(doc):
+    """
+    Configura el documento en orientación horizontal (apaisado).
+    """
+    section = doc.sections[0]
+    new_width, new_height = section.page_height, section.page_width
+    section.page_width = new_width
+    section.page_height = new_height
+    section.top_margin = Cm(1)
+    section.bottom_margin = Cm(1)
+    section.left_margin = Cm(1)
+    section.right_margin = Cm(1)
+
+def generar_contenido_word(datos, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df, confirmadas_df):
     """
     Genera el contenido del informe en un objeto Document de python-docx.
     """
@@ -1095,12 +1120,10 @@ def generar_contenido_word(datos, estado_riesgo, fig_principal, figs_te3, interp
         last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         # Obtener interpretaciones de interpretaciones_df
-        interpretacion = interpretaciones_df[(interpretaciones_df['GES'] == te3) &
-                                             (interpretaciones_df['Dimensión'] == te3)]['Interpretación'].values
+        interpretacion = interpretaciones_df[(interpretaciones_df['GES'] == te3)]['Interpretación'].values
         p = doc.add_paragraph()
         p.add_run('Interpretación del grupo de discusión: ').bold = True
         p.add_run(f"{interpretacion[0]}\n" if len(interpretacion) > 0 else 'Sin interpretación disponible\n')
-
         # Salto de página
         doc.add_page_break()
 
@@ -1115,7 +1138,7 @@ def generar_contenido_word(datos, estado_riesgo, fig_principal, figs_te3, interp
     hdr_cells[3].text = 'Responsable'
     hdr_cells[4].text = 'Interpretación'
 
-    for _, row in summary_df.iterrows():
+    for _, row in confirmadas_df.iterrows():
         row_cells = table.add_row().cells
         row_cells[0].text = str(row.get('Dimensión', 'N/A'))
         row_cells[1].text = str(row.get('Medida', 'N/A'))
@@ -1126,7 +1149,7 @@ def generar_contenido_word(datos, estado_riesgo, fig_principal, figs_te3, interp
     # Retornar el objeto Document
     return doc
 
-def generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles, CUV, interpretaciones_df):
+def generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles, CUV, interpretaciones_df, confirmadas_df):
     """
     Genera el informe en Word para un CUV específico.
     """
@@ -1157,7 +1180,7 @@ def generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcent
     figs_te3 = generar_graficos_por_te3(df_porcentajes_niveles, CUV)
 
     # Generar el contenido en el documento Word usando python-docx
-    doc = generar_contenido_word(row, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df)
+    doc = generar_contenido_word(row, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df, confirmadas_df)
 
     # Guardar el documento en un BytesIO para descarga
     docx_buffer = BytesIO()
@@ -1177,7 +1200,7 @@ if st.button("Generar informe en Word"):
         with st.spinner("Generando el informe, por favor espera..."):
             # Generar el documento
             doc_buffer = generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles,
-                                         selected_cuv, interpretaciones_df)
+                                         selected_cuv, interpretaciones_df, confirmadas_df)
 
             if doc_buffer:
                 # Botón de descarga
@@ -1190,3 +1213,4 @@ if st.button("Generar informe en Word"):
     else:
         st.warning(
             "Los datos necesarios para generar el informe no están disponibles. Asegúrate de haber cargado todos los archivos requeridos.")
+
