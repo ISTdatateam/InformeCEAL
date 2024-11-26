@@ -1,7 +1,4 @@
 # Importar las bibliotecas necesarias
-import streamlit as st
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 import unicodedata
 from io import BytesIO
@@ -13,6 +10,7 @@ from openpyxl.worksheet.dimensions import Dimension
 import streamlit as st
 import pandas as pd
 import numpy as np
+from datetime import timedelta, datetime
 
 
 # Configuración inicial de la aplicación
@@ -443,7 +441,6 @@ if (uploaded_file_combined is not None and
         st.markdown(contenido)
 
 
-
     # Sección 2: Selección de CUV para generar el informe
     st.header("2. Seleccionar CUV para generar el informe")
 
@@ -453,6 +450,8 @@ if (uploaded_file_combined is not None and
     # Filtrar los datos para el CUV seleccionado
     datos = df_res_com[df_res_com['CUV'] == selected_cuv]
     estado = summary_df[summary_df['CUV'] == selected_cuv]
+
+    fecha_fin = pd.to_datetime(datos.get('Fecha Fin'))
 
     # Mostrar la información de la empresa
     st.subheader("Información de la Empresa")
@@ -694,7 +693,6 @@ if (uploaded_file_combined is not None and
 
         #st.session_state.dimensiones_te3 = dimensiones_te3
 
-
         # Función para actualizar la numeración
         def actualizar_numeracion(df):
             df = df.reset_index(drop=True)
@@ -702,7 +700,6 @@ if (uploaded_file_combined is not None and
             return df
 
 
-        # Agrupar las dimensiones por GES
         # Agrupar las dimensiones por GES correctamente desglosando valores combinados
         ges_groups = {}
         for dimension in dimensiones_te3:
@@ -716,6 +713,20 @@ if (uploaded_file_combined is not None and
                 dimension_copy['GES'] = ges  # Asignar el GES desglosado
                 ges_groups[ges].append(dimension_copy)
 
+
+        # Definir la función para formatear opciones del selectbox
+        def format_option(option):
+            nombre, fecha = option
+            if pd.notnull(fecha):
+                return f"{nombre} - {fecha.strftime('%d-%m-%Y')}"
+            else:
+                return nombre
+
+
+        # Crear un diccionario temporal para almacenar interpretaciones en st.session_state si no existe
+        if 'interpretaciones_temporales' not in st.session_state:
+            st.session_state['interpretaciones_temporales'] = {}
+
         # Procesar cada GES
         for ges, dimensiones in ges_groups.items():
             st.header(f"GES: {ges}")
@@ -723,26 +734,44 @@ if (uploaded_file_combined is not None and
             # Procesar cada Dimensión dentro del GES
             for idx, dimension in enumerate(dimensiones, 1):
                 st.subheader(f"Dimensión: {dimension['Dimensión en riesgo']}")
-                st.write(f"Descripción del riesgo: {dimension['Descripción riesgo']}")
-                st.write("Preguntas clave:")
+                st.write(f"**Descripción del riesgo:** {dimension['Descripción riesgo']}")
+                st.write("**Preguntas clave:**")
                 st.write(dimension["Preguntas clave"])
 
-                # Interpretación del grupo de discusión
+                # Gestionar la interpretación del grupo de discusión
                 interpretacion_key = f"interpretacion_{ges}_{idx}"
+
+                # Establecer un valor inicial en el diccionario temporal si no existe
+                if interpretacion_key not in st.session_state['interpretaciones_temporales']:
+                    st.session_state['interpretaciones_temporales'][interpretacion_key] = st.session_state.get(
+                        interpretacion_key, "")
+
+                # Mostrar el cuadro de texto para la interpretación
                 interpretacion = st.text_area(
                     label="Interpretación del grupo de discusión",
-                    value="",
+                    value=st.session_state['interpretaciones_temporales'][interpretacion_key],
                     height=150,
-                    key=interpretacion_key  # Clave única para cada text_area
+                    key=interpretacion_key
                 )
+
+                # Actualizar el valor en el diccionario temporal sin modificar el valor en el estado directamente asociado al widget
+                st.session_state['interpretaciones_temporales'][interpretacion_key] = interpretacion
 
                 # Gestionar medidas propuestas
                 st.write("#### Medidas propuestas")
                 session_key = f"measures_{ges}_{idx}"
                 if session_key not in st.session_state:
                     medidas_data = [
-                        {'N°': i + 1, 'GES': ges, 'Dimensión': dimension['Dimensión en riesgo'], 'Medida': medida,
-                         'Fecha monitoreo': '', 'Responsable': '', 'Activo': True, 'Seleccionada': False}
+                        {
+                            'N°': i + 1,
+                            'GES': ges,
+                            'Dimensión': dimension['Dimensión en riesgo'],
+                            'Medida': medida,
+                            'Fecha monitoreo': '',
+                            'Responsable': '',
+                            'Activo': True,
+                            'Seleccionada': False
+                        }
                         for i, medida in enumerate(dimension['Medidas propuestas'])
                     ]
                     st.session_state[session_key] = pd.DataFrame(medidas_data)
@@ -762,6 +791,20 @@ if (uploaded_file_combined is not None and
                     st.write("#### Crear una nueva medida")
                     medida_idx = None
 
+                # Calcular las fechas de corto, mediano y largo plazo
+                fecha_fin = pd.to_datetime("2024-11-26")  # Reemplaza con tu lógica para obtener 'Fecha Fin'
+                fecha_corto_plazo = fecha_fin + timedelta(days=240)
+                fecha_mediano_plazo = fecha_fin + timedelta(days=330)
+                fecha_largo_plazo = fecha_fin + timedelta(days=420)
+
+                # Crear una lista con las fechas calculadas
+                fechas_opciones = [
+                    ("Corto Plazo (180 días)", fecha_corto_plazo),
+                    ("Mediano Plazo (270 días)", fecha_mediano_plazo),
+                    ("Largo Plazo (360 días)", fecha_largo_plazo),
+                    ("Otra fecha", None)  # Opción para seleccionar una fecha personalizada
+                ]
+
                 # Crear formulario para editar o crear medida
                 with st.form(key=f"form_{ges}_{idx}"):
                     medida = st.text_area(
@@ -770,12 +813,38 @@ if (uploaded_file_combined is not None and
                         key=f"edit_medida_{ges}_{idx}",
                         height=90
                     )
-                    fecha = st.date_input(
-                        "Fecha de monitoreo",
-                        value=pd.to_datetime(df.at[medida_idx, 'Fecha monitoreo']) if medida_idx is not None and df.at[
-                            medida_idx, 'Fecha monitoreo'] else None,
-                        key=f"edit_fecha_{ges}_{idx}"
+
+                    # Mostrar la lista desplegable para seleccionar la fecha de monitoreo
+                    opcion_seleccionada = st.selectbox(
+                        "Selecciona la Fecha de Monitoreo",
+                        options=fechas_opciones,
+                        format_func=format_option,
+                        key=f"select_fecha_{ges}_{idx}"
                     )
+
+                    # Determinar la fecha seleccionada
+                    if opcion_seleccionada[1]:
+                        # Si se selecciona una de las opciones predefinidas
+                        fecha = opcion_seleccionada[1]
+                    else:
+                        # Si se selecciona 'Otra fecha', mostrar el date_input para elegir manualmente
+                        fecha_default = pd.to_datetime(df.at[medida_idx, 'Fecha monitoreo']) if (
+                                medida_idx is not None and pd.notna(df.at[medida_idx, 'Fecha monitoreo'])
+                        ) else datetime.today()
+                        fecha = st.date_input(
+                            "Selecciona una Fecha de Monitoreo personalizada",
+                            value=fecha_default,
+                            key=f"edit_fecha_personalizada_{ges}_{idx}"
+                        )
+
+                    # Asegurarse de que 'fecha' sea un objeto datetime
+                    if isinstance(fecha, datetime):
+                        fecha_formateada = fecha.strftime('%d-%m-%Y')
+                    else:
+                        # Si 'fecha' es un objeto 'date', convertir a datetime
+                        fecha = datetime.combine(fecha, datetime.min.time())
+                        fecha_formateada = fecha.strftime('%d-%m-%Y')
+
                     responsable = st.text_input(
                         "Responsable",
                         value=df.at[medida_idx, 'Responsable'] if medida_idx is not None else "",
@@ -797,8 +866,10 @@ if (uploaded_file_combined is not None and
                     else:  # Crear nueva medida
                         nueva_medida = {
                             "N°": len(st.session_state[session_key]) + 1,
+                            "GES": ges,
+                            "Dimensión": dimension['Dimensión en riesgo'],
                             "Medida": medida,
-                            "Fecha monitoreo": fecha.strftime('%Y-%m-%d') if fecha else '',
+                            "Fecha monitoreo": fecha.strftime('%d-%m-%Y') if fecha else '',
                             "Responsable": responsable,
                             "Activo": True,
                             "Seleccionada": True
@@ -809,53 +880,96 @@ if (uploaded_file_combined is not None and
                         )
                         st.success("Nueva medida creada correctamente")
 
-        # Nueva Sección: Resumen de medidas confirmadas
-        st.header("Resumen de medidas confirmadas")
+        # Botón para guardar todas las interpretaciones
+        if st.button("Guardar todas las interpretaciones"):
+            for key, interpretacion in st.session_state['interpretaciones_temporales'].items():
+                if key not in st.session_state:
+                    st.session_state[
+                        key] = interpretacion  # Guardar en `st.session_state` solo si no ha sido instanciado por el widget
+            st.success("Todas las interpretaciones se han guardado correctamente")
+
+        # Nueva Sección: Resumen de datos confirmados
+        st.header("Resumen de datos confirmados")
         confirmed_measures = []
+        interpretaciones_data = []
+
         for ges, dimensiones in ges_groups.items():
             for idx, dimension in enumerate(dimensiones, 1):
                 session_key = f"measures_{ges}_{idx}"
+                interpretacion_key = f"interpretacion_{ges}_{idx}"
+
+                # Procesar medidas confirmadas
                 if session_key in st.session_state:
                     temp_df = st.session_state[session_key].copy()
                     temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
+
+                    # Agregar información del GES y la Dimensión
                     temp_df['Dimensión'] = dimension["Dimensión en riesgo"]
                     temp_df['GES'] = ges
+
+                    # Añadir la interpretación correspondiente a todas las medidas de la dimensión
+                    if interpretacion_key in st.session_state['interpretaciones_temporales']:
+                        temp_df['Interpretación'] = st.session_state['interpretaciones_temporales'][interpretacion_key]
+                    else:
+                        temp_df['Interpretación'] = ""
+
                     confirmed_measures.append(temp_df)
 
-        confirmed_measures = []
-        for ges, dimensiones in ges_groups.items():
-            for idx, dimension in enumerate(dimensiones, 1):
-                session_key = f"measures_{ges}_{idx}"
-                if session_key in st.session_state:
-                    temp_df = st.session_state[session_key].copy()
-                    temp_df = temp_df[temp_df['Seleccionada']]  # Filtrar solo medidas seleccionadas
-                    temp_df['Dimensión'] = dimension["Dimensión en riesgo"]
-                    temp_df['GES'] = ges
-                    confirmed_measures.append(temp_df)
+                # Procesar las interpretaciones de cada dimensión
+                if interpretacion_key in st.session_state['interpretaciones_temporales']:
+                    interpretacion = st.session_state['interpretaciones_temporales'][interpretacion_key]
+                    interpretaciones_data.append({
+                        'GES': ges,
+                        'Dimensión': dimension["Dimensión en riesgo"],
+                        'Interpretación': interpretacion
+                    })
 
+        # Mostrar Resumen de Interpretaciones
+        if interpretaciones_data:
+            interpretaciones_df = pd.DataFrame(interpretaciones_data)
+            if not interpretaciones_df.empty:
+                st.write("Las interpretaciones ingresadas hasta el momento:")
+                st.dataframe(interpretaciones_df[['GES', 'Dimensión', 'Interpretación']])
+        else:
+            st.info("No hay interpretaciones ingresadas hasta el momento.")
+
+
+        # Mostrar Resumen de Medidas Confirmadas
         if confirmed_measures:
             summary_df = pd.concat(confirmed_measures, ignore_index=True)
             if not summary_df.empty:
                 st.write("Las siguientes medidas han sido confirmadas hasta el momento:")
-                st.dataframe(summary_df[['GES', 'Dimensión', 'Medida', 'Fecha monitoreo', 'Responsable']])
+                st.dataframe(
+                    summary_df[['GES', 'Dimensión', 'Medida', 'Fecha monitoreo', 'Responsable', 'Interpretación']])
             else:
                 st.info("No hay medidas confirmadas hasta el momento.")
         else:
             st.info("No hay medidas confirmadas hasta el momento.")
 
-            # Exportar como CSV todo lo guardado
-            if not final_df.empty:
-                csv = final_df.to_csv(index=False)
-                st.download_button(
-                    label="Descargar archivo CSV",
-                    data=csv,
-                    file_name="medidas_seleccionadas.csv",
-                    mime="text/csv",
-                )
-                st.success("Datos guardados correctamente.")
-            else:
-                st.warning("No se han seleccionado medidas para guardar.")
 
+        # Exportar como CSV las interpretaciones ingresadas
+        if 'interpretaciones_df' in locals() and not interpretaciones_df.empty:
+            csv_interpretaciones = interpretaciones_df.to_csv(index=False)
+            st.download_button(
+                label="Descargar archivo CSV con Interpretaciones",
+                data=csv_interpretaciones,
+                file_name="interpretaciones_ingresadas.csv",
+                mime="text/csv",
+            )
+            st.success("Datos de interpretaciones guardados correctamente.")
+
+        # Exportar como CSV
+        if 'summary_df' in locals() and not summary_df.empty:
+            csv = summary_df.to_csv(index=False)
+            st.download_button(
+                label="Descargar archivo CSV con Medidas Confirmadas",
+                data=csv,
+                file_name="medidas_seleccionadas.csv",
+                mime="text/csv",
+            )
+            st.success("Datos de medidas guardados correctamente.")
+        else:
+            st.warning("No se han seleccionado medidas para guardar.")
 
 
 
