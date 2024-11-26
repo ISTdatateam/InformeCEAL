@@ -939,11 +939,11 @@ if (uploaded_file_combined is not None and
 
         # Mostrar Resumen de Medidas Confirmadas
         if confirmed_measures:
-            summary_df = pd.concat(confirmed_measures, ignore_index=True)
-            if not summary_df.empty:
+            confirmadas_df = pd.concat(confirmed_measures, ignore_index=True)
+            if not confirmadas_df.empty:
                 st.write("Las siguientes medidas han sido confirmadas hasta el momento:")
                 st.dataframe(
-                    summary_df[['GES', 'Dimensión', 'Medida', 'Fecha monitoreo', 'Responsable', 'Interpretación']])
+                    confirmadas_df[['GES', 'Dimensión', 'Medida', 'Fecha monitoreo', 'Responsable', 'Interpretación']])
             else:
                 st.info("No hay medidas confirmadas hasta el momento.")
         else:
@@ -962,8 +962,8 @@ if (uploaded_file_combined is not None and
             st.success("Datos de interpretaciones guardados correctamente.")
 
         # Exportar como CSV
-        if 'summary_df' in locals() and not summary_df.empty:
-            csv = summary_df.to_csv(index=False)
+        if 'confirmadas_df' in locals() and not confirmadas_df.empty:
+            csv = confirmadas_df.to_csv(index=False)
             st.download_button(
                 label="Descargar archivo CSV con Medidas Confirmadas",
                 data=csv,
@@ -974,274 +974,219 @@ if (uploaded_file_combined is not None and
         else:
             st.warning("No se han seleccionado medidas para guardar.")
 
+# Sección 6: Generación del informe en Word
+st.header("6. Generación del informe en Word")
 
+def establecer_orientacion_apaisada(doc):
+    """
+    Configura el documento en orientación horizontal (apaisado).
+    """
+    section = doc.sections[0]
+    new_width, new_height = section.page_height, section.page_width
+    section.page_width = new_width
+    section.page_height = new_height
+    section.top_margin = Cm(1)
+    section.bottom_margin = Cm(1)
+    section.left_margin = Cm(1)
+    section.right_margin = Cm(1)
 
-        # Sección 6: Generación del informe en Word
-        st.header("6. Generación del informe en Word")
+def generar_contenido_word(datos, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df):
+    """
+    Genera el contenido del informe en un objeto Document de python-docx.
+    """
+    # Crear un nuevo documento
+    doc = Document()
+    establecer_orientacion_apaisada(doc)
 
-        def establecer_orientacion_apaisada(doc):
-            """
-            Configura el documento en orientación horizontal (apaisado).
-            """
-            section = doc.sections[0]
-            new_width, new_height = section.page_height, section.page_width
-            section.page_width = new_width
-            section.page_height = new_height
-            section.top_margin = Cm(1)
-            section.bottom_margin = Cm(1)
-            section.left_margin = Cm(1)
-            section.right_margin = Cm(1)
+    # Establecer Calibri como fuente predeterminada para el estilo 'Normal'
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Calibri'
+    font.size = Pt(9)  # Tamaño de fuente opcional; ajusta según prefieras
 
+    # Crear un nuevo estilo llamado 'destacado' con Calibri y tamaño de fuente 12
+    destacado = doc.styles.add_style('destacado', 1)  # 1 para párrafos
+    destacado_font = destacado.font
+    destacado_font.name = 'Calibri'
+    destacado_font.size = Pt(12)  # Tamaño de la fuente en puntos
 
+    # Configurar el idioma del documento en español
+    lang = doc.styles['Normal'].element
+    lang.set(qn('w:lang'), 'es-ES')
 
+    doc.add_paragraph()
+    doc.add_paragraph()
+    doc.add_paragraph()
+    doc.add_paragraph()
+    # Agregar imagen del logo (ajusta la ruta de la imagen a tu ubicación)
+    doc.add_picture('IST.jpg', width=Inches(2))  # Ajusta el tamaño según sea necesario
+    last_paragraph = doc.paragraphs[-1]
+    last_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER  # Alinear al centro
+    doc.add_paragraph()
 
-        def generar_contenido_word(datos, estado_riesgo, fig_principal, figs_te3, df_resumen, df_porcentajes_niveles,
-                                   df_resultados_porcentaje):
-            """
-            Genera el contenido del informe en un objeto Document de python-docx.
-            """
-            # Crear un nuevo documento
-            doc = Document()
-            establecer_orientacion_apaisada(doc)
-            # section = doc.sections[0]
-            # section.page_height = Inches(11)  # 11 pulgadas de alto para Carta
-            # section.page_width = Inches(8.5)  # 8.5 pulgadas de ancho para Carta
+    # Título principal
+    titulo = doc.add_heading('INFORME TÉCNICO', level=1)
+    titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
 
-            # Establecer Calibri como fuente predeterminada para el estilo 'Normal'
-            style = doc.styles['Normal']
-            font = style.font
-            font.name = 'Calibri'
-            font.size = Pt(9)  # Tamaño de fuente opcional; ajusta según prefieras
+    # Subtítulo
+    subtitulo = doc.add_heading('PRESCRIPCIÓN DE MEDIDAS PARA PROTOCOLO DE VIGILANCIA', level=2)
+    subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    # Subtítulo
+    subtitulo = doc.add_heading('DE RIESGOS PSICOSOCIALES EN EL TRABAJO', level=2)
+    subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    doc.add_paragraph()
 
-            # Crear un nuevo estilo llamado 'destacado' con Calibri y tamaño de fuente 12
-            destacado = doc.styles.add_style('destacado', 1)  # 1 para párrafos
-            destacado_font = destacado.font
-            destacado_font.name = 'Calibri'
-            destacado_font.size = Pt(12)  # Tamaño de la fuente en puntos
+    # Información general
+    p = doc.add_paragraph()
+    p.add_run('Razón Social: ').bold = True
+    p.add_run(f"{datos.get('Nombre Empresa', 'N/A')}\n")
+    p.add_run('RUT: ').bold = True
+    p.add_run(f"{datos.get('RUT Empresa Lugar Geográfico', 'N/A')}\n")
+    p.add_run('Nombre del centro de trabajo: ').bold = True
+    p.add_run(f"{datos.get('Nombre Centro de Trabajo', 'N/A')}\n")
+    p.add_run('CUV: ').bold = True
+    p.add_run(f"{datos.get('CUV', 'N/A')}\n")
+    p.add_run('CIIU: ').bold = True
+    p.add_run(f"{datos.get('CIIU CT', 'N/A').split('_')[-1]}\n")
+    p.add_run('Fecha de activación del cuestionario: ').bold = True
+    p.add_run(f"{datos.get('Fecha Inicio', 'N/A')}\n")
+    p.add_run('Fecha de cierre del cuestionario: ').bold = True
+    p.add_run(f"{datos.get('Fecha Fin', 'N/A')}\n")
+    p.add_run('Universo de trabajadores de evaluación: ').bold = True
+    p.add_run(f"{datos.get('Nº Trabajadores CT', 'N/A')}\n")
+    p.paragraph_format.left_indent = Cm(1.5)
 
-            # Configurar el idioma del documento en español
-            lang = doc.styles['Normal'].element
-            lang.set(qn('w:lang'), 'es-ES')
+    # Salto de página
+    doc.add_page_break()
 
-            doc.add_paragraph()
-            doc.add_paragraph()
-            doc.add_paragraph()
-            doc.add_paragraph()
-            # Agregar imagen del logo (ajusta la ruta de la imagen a tu ubicación)
-            doc.add_picture('/mount/src/informeceal/IST.jpg', width=Inches(2))  # Ajusta el tamaño según sea necesario
-            last_paragraph = doc.paragraphs[-1]
-            last_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER  # Alinear a la derecha
-            doc.add_paragraph()
+    # Título de sección
+    doc.add_heading('RESULTADOS GENERALES', level=2)
 
-            # Título principal
-            titulo = doc.add_heading('INFORME TÉCNICO', level=1)
-            titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    # Información de riesgo general
+    p = doc.add_paragraph()
+    p.add_run('Nivel de riesgo: ').bold = True
+    p.add_run(f"{estado_riesgo}\n")
+    p.style.font.size = Pt(12)
 
-            # Subtítulo
-            subtitulo = doc.add_heading('PRESCRIPCIÓN DE MEDIDAS PARA PROTOCOLO DE VIGILANCIA', level=2)
-            subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-            # Subtítulo
-            subtitulo = doc.add_heading('DE RIESGOS PSICOSOCIALES EN EL TRABAJO', level=2)
-            subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-            doc.add_paragraph()
+    # Insertar imagen del gráfico principal
+    if fig_principal:
+        img_buffer = BytesIO()
+        fig_principal.savefig(img_buffer, format='png')
+        img_buffer.seek(0)
+        doc.add_picture(img_buffer, width=Inches(6))
+        img_buffer.close()
+        last_paragraph = doc.paragraphs[-1]
+        last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-            # Información general
-            p = doc.add_paragraph()
-            p.add_run('Razón Social: ').bold = True
-            p.add_run(f"{datos['Nombre Empresa']}\n")
-            p.add_run('RUT: ').bold = True
-            p.add_run(f"{datos['RUT Empresa Lugar Geográfico']}\n")
-            p.add_run('Nombre del centro de trabajo: ').bold = True
-            p.add_run(f"{datos['Nombre Centro de Trabajo']}\n")
-            p.add_run('CUV: ').bold = True
-            p.add_run(f"{datos['CUV']}\n")
-            p.add_run('CIIU: ').bold = True
-            p.add_run(f"{datos['CIIU CT'].split('_')[-1]}\n")
-            p.add_run('Fecha de activación del cuestionario: ').bold = True
-            p.add_run(f"{datos['Fecha Inicio']}\n")
-            p.add_run('Fecha de cierre del cuestionario: ').bold = True
-            p.add_run(f"{datos['Fecha Fin']}\n")
-            p.add_run('Universo de trabajadores de evaluación: ').bold = True
-            p.add_run(f"{datos['Nº Trabajadores CT']}\n")
-            p.paragraph_format.left_indent = Cm(15)
+    # Salto de página
+    doc.add_page_break()
 
-            # Salto de página
-            doc.add_page_break()
-            # Agregar imagen del logo en el encabezado (opcional)
-            # doc.add_picture('logo.jpg', width=Inches(1))
-            # last_paragraph = doc.paragraphs[-1]
-            # last_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            # Título de sección
-            doc.add_heading('RESULTADOS GENERALES', level=2)
+    # Agregar gráficos por TE3
+    for fig_te3, te3 in figs_te3:
+        doc.add_heading(f"RESULTADOS POR ÁREA O GES {te3}", level=2)
 
-            # Información de riesgo general
-            p = doc.add_paragraph()
-            p.add_run('Nivel de riesgo: ').bold = True
-            p.add_run(f"{estado_riesgo}\n")
-            p.style.font.size = Pt(12)
+        # Insertar el gráfico
+        img_buffer = BytesIO()
+        fig_te3.savefig(img_buffer, format='png')
+        img_buffer.seek(0)
+        doc.add_picture(img_buffer, width=Inches(6))
+        img_buffer.close()
+        last_paragraph = doc.paragraphs[-1]
+        last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-            # Insertar imagen del gráfico principal
-            if fig_principal:
-                img_buffer = BytesIO()
-                fig_principal.savefig(img_buffer, format='png')
-                img_buffer.seek(0)
-                doc.add_picture(img_buffer, width=Inches(6))
-                img_buffer.close()
-                last_paragraph = doc.paragraphs[-1]
-                last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Obtener interpretaciones de interpretaciones_df
+        interpretacion = interpretaciones_df[(interpretaciones_df['GES'] == te3) &
+                                             (interpretaciones_df['Dimensión'] == te3)]['Interpretación'].values
+        p = doc.add_paragraph()
+        p.add_run('Interpretación del grupo de discusión: ').bold = True
+        p.add_run(f"{interpretacion[0]}\n" if len(interpretacion) > 0 else 'Sin interpretación disponible\n')
 
-            # Obtener dimensiones en riesgo
-            dimensiones_riesgo_alto = df_resultados_porcentaje[
-                (df_resultados_porcentaje['CUV'] == datos['CUV']) & (df_resultados_porcentaje['Puntaje'] == 2)
-                ]['Dimensión'].tolist()
+        # Salto de página
+        doc.add_page_break()
 
-            dimensiones_riesgo_medio = df_resultados_porcentaje[
-                (df_resultados_porcentaje['CUV'] == datos['CUV']) & (df_resultados_porcentaje['Puntaje'] == 1)
-                ]['Dimensión'].tolist()
+    # Agregar tabla de medidas propuestas desde summary_df
+    doc.add_heading(f"Medidas propuestas para {datos.get('Nombre Centro de Trabajo', 'N/A')}", level=2)
+    table = doc.add_table(rows=1, cols=5)
+    table.style = 'Table Grid'
+    hdr_cells = table.rows[0].cells
+    hdr_cells[0].text = 'Dimensión'
+    hdr_cells[1].text = 'Medida'
+    hdr_cells[2].text = 'Fecha monitoreo'
+    hdr_cells[3].text = 'Responsable'
+    hdr_cells[4].text = 'Interpretación'
 
-            dimensiones_riesgo_bajo = df_resultados_porcentaje[
-                (df_resultados_porcentaje['CUV'] == datos['CUV']) & (df_resultados_porcentaje['Puntaje'] == -2)
-                ]['Dimensión'].tolist()
+    for _, row in summary_df.iterrows():
+        row_cells = table.add_row().cells
+        row_cells[0].text = str(row.get('Dimensión', 'N/A'))
+        row_cells[1].text = str(row.get('Medida', 'N/A'))
+        row_cells[2].text = str(row.get('Fecha monitoreo', 'N/A'))
+        row_cells[3].text = str(row.get('Responsable', 'N/A'))
+        row_cells[4].text = str(row.get('Interpretación', 'N/A'))
 
-            # Dimensiones en riesgo
-            p = doc.add_paragraph()
-            p.add_run('Dimensiones en riesgo alto: ').bold = True
-            p.add_run(f"{', '.join(dimensiones_riesgo_alto) if dimensiones_riesgo_alto else 'Ninguna'}\n")
-            p.add_run('Dimensiones en riesgo medio: ').bold = True
-            p.add_run(f"{', '.join(dimensiones_riesgo_medio) if dimensiones_riesgo_medio else 'Ninguna'}\n")
-            p.add_run('Dimensiones en riesgo bajo: ').bold = True
-            p.add_run(f"{', '.join(dimensiones_riesgo_bajo) if dimensiones_riesgo_bajo else 'Ninguna'}\n")
+    # Retornar el objeto Document
+    return doc
 
-            # Salto de página
-            doc.add_page_break()
+def generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles, CUV, interpretaciones_df):
+    """
+    Genera el informe en Word para un CUV específico.
+    """
+    if 'CUV' not in df_res_com.columns or 'CUV' not in summary_df.columns:
+        st.error("La columna 'CUV' no se encuentra en los DataFrames proporcionados.")
+        return None
 
-            # Agregar gráficos por TE3
-            for fig_te3, te3 in figs_te3:
-                doc.add_heading(f"RESULTADOS POR ÁREA O GES {te3}", level=2)
+    datos = df_res_com[df_res_com['CUV'] == CUV]
+    estado = summary_df[summary_df['CUV'] == CUV]
 
-                # Obtener el nivel de riesgo para este TE3
-                riesgo_te3 = df_resumen[(df_resumen['CUV'] == datos['CUV']) & (df_resumen['TE3'] == te3)]['Riesgo']
-                if not riesgo_te3.empty:
-                    riesgo_te3 = riesgo_te3.values[0]
-                else:
-                    riesgo_te3 = "Información no disponible"
+    if datos.empty:
+        st.error(f"No se encontró el CUV {CUV} en df_res_com.")
+        return None
+    if estado.empty:
+        st.error(f"No se encontró el CUV {CUV} en summary_df.")
+        return None
 
-                p = doc.add_paragraph()
-                p.add_run('Nivel de riesgo: ').bold = True
-                p.add_run(f"{riesgo_te3}\n")
-                p.style.font.size = Pt(12)
+    row = datos.iloc[0]
+    estado_riesgo = estado['Riesgo'].values[0]
 
-                # Insertar el gráfico
-                img_buffer = BytesIO()
-                fig_te3.savefig(img_buffer, format='png')
-                img_buffer.seek(0)
-                doc.add_picture(img_buffer, width=Inches(6))
-                img_buffer.close()
-                last_paragraph = doc.paragraphs[-1]
-                last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Generar el gráfico principal
+    fig_principal = generar_grafico_principal(df_resultados_porcentaje, CUV)
+    if not fig_principal:
+        st.warning("No se pudo generar el gráfico principal.")
+        return None
 
-                # Obtener dimensiones en riesgo alto y medio
-                dimensiones_riesgo_alto = df_porcentajes_niveles[
-                    (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (
-                                df_porcentajes_niveles['Puntaje'] == 2)
-                    ]['Dimensión'].tolist()
+    # Generar gráficos por TE3
+    figs_te3 = generar_graficos_por_te3(df_porcentajes_niveles, CUV)
 
-                dimensiones_riesgo_medio = df_porcentajes_niveles[
-                    (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (
-                                df_porcentajes_niveles['Puntaje'] == 1)
-                    ]['Dimensión'].tolist()
+    # Generar el contenido en el documento Word usando python-docx
+    doc = generar_contenido_word(row, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df)
 
-                dimensiones_riesgo_bajo = df_porcentajes_niveles[
-                    (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (
-                                df_porcentajes_niveles['Puntaje'] == -2)
-                    ]['Dimensión'].tolist()
+    # Guardar el documento en un BytesIO para descarga
+    docx_buffer = BytesIO()
+    doc.save(docx_buffer)
+    docx_buffer.seek(0)
 
-                # Dimensiones en riesgo alto y medio
-                p = doc.add_paragraph()
-                p.add_run('Dimensiones en riesgo alto: ').bold = True
-                p.add_run(f"{', '.join(dimensiones_riesgo_alto) if dimensiones_riesgo_alto else 'Ninguna'}\n")
-                p.add_run('Dimensiones en riesgo medio: ').bold = True
-                p.add_run(f"{', '.join(dimensiones_riesgo_medio) if dimensiones_riesgo_medio else 'Ninguna'}\n")
-                p.add_run('Dimensiones en riesgo bajo: ').bold = True
-                p.add_run(f"{', '.join(dimensiones_riesgo_bajo) if dimensiones_riesgo_bajo else 'Ninguna'}\n")
+    return docx_buffer
 
-                # Salto de página
-                doc.add_page_break()
+# Botón para generar y descargar el informe
+if st.button("Generar informe en Word"):
 
-            # Agregar tabla de medidas propuestas
-            doc.add_heading(f"Medidas propuestas para {datos['Nombre Centro de Trabajo']}", level=2)
-            agregar_tabla_ges_por_dimension(doc, df_res_dimTE3, datos['CUV'], df_recomendaciones,
-                                            df_resultados_porcentaje, df_porcentajes_niveles, top_glosas, df_res_com)
+    if (uploaded_file_combined is not None and
+            uploaded_file_rec is not None and
+            uploaded_file_ciiu is not None and
+            uploaded_file_resultados is not None and
+            'df_res_com' in locals() and 'summary_df' in locals()):
+        with st.spinner("Generando el informe, por favor espera..."):
+            # Generar el documento
+            doc_buffer = generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles,
+                                         selected_cuv, interpretaciones_df)
 
-            # Retornar el objeto Document
-            return doc
-
-
-    def generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles, CUV, df_resumen,
-                        df_res_dimTE3):
-        """
-        Genera el informe en Word para un CUV específico.
-        """
-        datos = df_res_com[df_res_com['CUV'] == CUV]
-        estado = summary_df[summary_df['CUV'] == CUV]
-
-        if datos.empty:
-            st.error(f"No se encontró el CUV {CUV} en df_res_com.")
-            return None
-        if estado.empty:
-            st.error(f"No se encontró el CUV {CUV} en summary_df.")
-            return None
-
-        row = datos.iloc[0]
-        estado_riesgo = estado['Riesgo'].values[0]
-
-        # Generar el gráfico principal
-        fig_principal = generar_grafico_principal(df_resultados_porcentaje, CUV)
-        if not fig_principal:
-            st.warning("No se pudo generar el gráfico principal.")
-            return None
-
-        # Generar gráficos por TE3
-        figs_te3 = generar_graficos_por_te3(df_porcentajes_niveles, CUV)
-
-        # Generar el contenido en el documento Word usando python-docx
-        doc = generar_contenido_word(row, estado_riesgo, fig_principal, figs_te3, df_resumen,
-                                     df_porcentajes_niveles, df_resultados_porcentaje)
-
-        # Guardar el documento en un BytesIO para descarga
-        docx_buffer = BytesIO()
-        doc.save(docx_buffer)
-        docx_buffer.seek(0)
-
-        return docx_buffer
-
-
-    # Botón para generar y descargar el informe
-    if st.button("Generar informe en Word"):
-
-        if (uploaded_file_combined is not None and
-                uploaded_file_rec is not None and
-                uploaded_file_ciiu is not None and
-                uploaded_file_resultados is not None and
-                'df_res_com' in locals() and 'summary_df' in locals()):
-            with st.spinner("Generando el informe, por favor espera..."):
-                # Generar el documento
-                doc_buffer = generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles,
-                                             selected_cuv, df_resumen, df_res_dimTE3)
-
-                if doc_buffer:
-                    # Botón de descarga
-                    st.download_button(
-                        label="Descargar informe",
-                        data=doc_buffer,
-                        file_name=f"Informe_{selected_cuv}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-        else:
-            st.warning(
-                "Los datos necesarios para generar el informe no están disponibles. Asegúrate de haber cargado todos los archivos requeridos.")
-
-
-
-
-
+            if doc_buffer:
+                # Botón de descarga
+                st.download_button(
+                    label="Descargar informe",
+                    data=doc_buffer,
+                    file_name=f"Informe_{selected_cuv}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+    else:
+        st.warning(
+            "Los datos necesarios para generar el informe no están disponibles. Asegúrate de haber cargado todos los archivos requeridos.")
