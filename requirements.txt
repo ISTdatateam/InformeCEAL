@@ -8,4 +8,4 @@ python_docx
 streamlit
 openpyxl
 pymssql
-st_aggrid
+streamlit-aggrid
