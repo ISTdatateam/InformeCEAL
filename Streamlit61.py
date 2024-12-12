@@ -1,4 +1,9 @@
+############### Parte 1: Importaciones, Configuración Inicial y Conexión a la Base de Datos ################
+
 # Importar las bibliotecas necesarias
+import streamlit as st
+import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import unicodedata
 from io import BytesIO
@@ -6,128 +11,397 @@ from docx import Document
 from docx.shared import Inches, Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
-from openpyxl.worksheet.dimensions import Dimension
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import timedelta, datetime
+import pyodbc
+import logging
+import os
 import base64
-from st_aggrid import AgGrid, GridOptionsBuilder
+from datetime import timedelta, datetime
+# Eliminar AgGrid
+# from st_aggrid import AgGrid, GridOptionsBuilder
+from dotenv import load_dotenv
 
+# Cargar variables de entorno desde un archivo .env
+load_dotenv()
 
-# Configuración inicial de la aplicación
-st.set_page_config(page_title="Generador de Informes de Riesgos Psicosociales", layout="wide")
+# Configuración de logging para monitorear la aplicación.
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+# Configuración de la base de datos para SQL Server utilizando variables de entorno
+server = os.getenv('DB_SERVER', '170.110.40.38')
+database = os.getenv('DB_DATABASE', 'ept_modprev')
+username = os.getenv('DB_USERNAME', 'usr_ept_modprev')
+password = os.getenv('DB_PASSWORD', 'C(Q5N:6+5sIt')
+driver = '{ODBC Driver 17 for SQL Server}'
+
+# Configurar la página principal de Streamlit
+st.set_page_config(
+    page_title="Generador de Informes de Riesgos Psicosociales",
+    layout="wide"
+)
+
+# Opciones de procesos en la barra lateral
+opciones_procesos = ["Inicio", "Búsqueda", "Procesamiento de Datos", "Resultados", "Informe"]
+proceso_actual = st.sidebar.selectbox("Seleccione el paso del proceso:", opciones_procesos)
+
+# Título principal de la aplicación
 st.title("Generador de Informes de Riesgos Psicosociales")
 st.write("""
 Esta aplicación permite generar informes técnicos basados en datos de riesgos psicosociales.
 Por favor, cargue los archivos necesarios y siga las instrucciones.
 """)
 
-# Sección 1: Carga de archivos
-#st.header("1. Carga de archivos")
 
-# Cargar el archivo Excel con múltiples hojas
-#uploaded_file_combined = st.file_uploader("Selecciona el archivo 'combined_output.xlsx'", type="xlsx")
-
-# Cargar los archivos de recomendaciones y códigos CIIU
-# uploaded_file_rec = st.file_uploader("Selecciona el archivo 'Recomendaciones2.xlsx'", type="xlsx")
-# uploaded_file_ciiu = st.file_uploader("Selecciona el archivo 'ciiu.xlsx'", type="xlsx")
-
-# Cargar el archivo 'resultados.xlsx'
-# uploaded_file_resultados = st.file_uploader("Selecciona el archivo 'resultados.xlsx'", type="xlsx")
-# Estamos casi a punto de salir a produccion, esta seria la version test.
-
-
-
-#precargas
-uploaded_file_combined = "combined_output.xlsx"
-uploaded_file_rec = 'Recomendaciones.xlsx'
-uploaded_file_ciiu = 'ciiu.xlsx'
-uploaded_file_resultados = 'resultados.xlsx'
-
-
-if (uploaded_file_combined is not None and
-        uploaded_file_rec is not None and
-        uploaded_file_ciiu is not None and
-        uploaded_file_resultados is not None):
-
-    # Leer las hojas necesarias desde 'combined_output.xlsx'
+# Función para establecer la conexión con la base de datos
+def get_db_connection():
+    """
+    Establece una conexión con la base de datos SQL Server.
+    Retorna el objeto de conexión si es exitosa, de lo contrario detiene la aplicación.
+    """
     try:
-        combined_df_base_complet3 = pd.read_excel(uploaded_file_combined, sheet_name='basecompleta')
-        summary_df = pd.read_excel(uploaded_file_combined, sheet_name='Summary')
-        df_resultados_porcentaje = pd.read_excel(uploaded_file_combined, sheet_name='resultado')
-        df_porcentajes_niveles = pd.read_excel(uploaded_file_combined, sheet_name='df_porcentajes_niveles')
-        df_res_dimTE3 = pd.read_excel(uploaded_file_combined, sheet_name='df_res_dimTE3')
-        df_resumen = pd.read_excel(uploaded_file_combined, sheet_name='df_resumen')
-        top_glosas = pd.read_excel(uploaded_file_combined, sheet_name='top_glosas')
-
-        #st.success("Archivo 'combined_output.xlsx' cargado exitosamente.")
-    except Exception as e:
-        st.error(f"Error al leer las hojas de 'combined_output.xlsx': {e}")
-
-    # Leer los archivos de recomendaciones y CIIU
-    try:
-        df_recomendaciones = pd.read_excel(uploaded_file_rec, sheet_name='df_recomendaciones')  # Cambia 'Hoja1' si es necesario
-        df_ciiu = pd.read_excel(uploaded_file_ciiu, sheet_name='ciiu')  # Cambia 'ciiu' si es necesario
-
-        #st.success("Archivos 'Recomendaciones2.xlsx' y 'ciiu.xlsx' cargados exitosamente.")
-    except Exception as e:
-        st.error(f"Error al leer los archivos de recomendaciones y CIIU: {e}")
-
-    # Leer y procesar 'resultados.xlsx'
-    try:
-        df_resultados = pd.read_excel(uploaded_file_resultados, sheet_name='Datos', usecols=['CUV', 'Folio'])
-        df_res_com = pd.read_excel(uploaded_file_resultados, sheet_name='Datos')
-
-        # Convertir 'CUV' a int64 en df_resultados
-        #df_resultados['CUV'] = pd.to_numeric(df_resultados['CUV'], errors='coerce').astype(
-        #    'Int64')  # Usa 'Int64' para permitir NaNs
-
-        #st.success("Archivo 'resultados.xlsx' cargado y procesado exitosamente.")
-    except Exception as e:
-        st.error(f"Error al leer y procesar 'resultados.xlsx': {e}")
+        connection = pyodbc.connect(
+            f'DRIVER={driver};'
+            f'SERVER={server};'
+            f'DATABASE={database};'
+            f'UID={username};'
+            f'PWD={password}'
+        )
+        logging.info("Conexión a la base de datos establecida exitosamente.")
+        return connection
+    except pyodbc.Error as e:
+        st.error(f"Error al conectar a la base de datos: {e}")
+        logging.error(f"Error al conectar a la base de datos: {e}")
+        st.stop()
 
 
-    # Asegurar que las columnas 'CUV' y 'ciiu' sean de tipo str
-    df_resultados['CUV'] = df_resultados['CUV'].astype(str)
-    df_res_com['CUV'] = df_res_com['CUV'].astype(str)
-    summary_df['CUV'] = summary_df['CUV'].astype(str)
-    df_resultados_porcentaje['CUV'] = df_resultados_porcentaje['CUV'].astype(str)
-    df_porcentajes_niveles['CUV'] = df_porcentajes_niveles['CUV'].astype(str)
-    df_res_dimTE3['CUV'] = df_res_dimTE3['CUV'].astype(str)
-    df_resumen['CUV'] = df_resumen['CUV'].astype(str)
-    top_glosas['CUV'] = top_glosas['CUV'].astype(str)
-    df_recomendaciones['ciiu'] = df_recomendaciones['ciiu'].astype(str)
+# Función para consultar una tabla específica filtrando por CUV
+def consultar_tabla(tabla, cuv=None, columnas=None):
+    """
+    Realiza una consulta SQL a una tabla específica filtrando por CUV si se proporciona.
 
-    def procesar_columna_fecha(df, columna, formato='%d-%m-%Y'):
-        """
-        Convierte una columna de fechas en el DataFrame al formato deseado.
+    Parámetros:
+    - tabla (str): Nombre de la tabla en la base de datos.
+    - cuv (str, opcional): Valor del CUV a filtrar.
+    - columnas (list[str], opcional): Lista de columnas a seleccionar. Si no se especifica, se seleccionan todas.
 
-        Parameters:
-        - df (pd.DataFrame): El DataFrame que contiene la columna.
-        - columna (str): El nombre de la columna a procesar.
-        - formato (str): El formato al que se desea convertir la fecha.
+    Retorna:
+    - pd.DataFrame: DataFrame con los resultados de la consulta.
+    """
+    tablas_permitidas = {
+        "informe_CEAL__Summary",
+        "informe_CEAL__basecompleta",
+        "informe_CEAL__df_porcentajes_niveles",
+        "informe_CEAL__df_res_dimTE3",
+        "informe_CEAL__df_resumen",
+        "informe_CEAL__resultado",
+        "informe_CEAL__top_glosas",
+        "informe_CEAL__fileresultados",
+        "informe_CEAL__ciiu",
+        "informe_CEAL__rec"
+    }
 
-        Returns:
-        - pd.DataFrame: El DataFrame con la columna procesada.
-        """
-        if columna in df.columns:
-            df[columna] = pd.to_datetime(df[columna], errors='coerce').dt.strftime(formato)
-            #st.success(f"Columna '{columna}' procesada correctamente.")
-        else:
-            st.error(
-                f"La columna '{columna}' no se encontró en el DataFrame 'df_res_com'. Por favor, verifica el nombre de la columna.")
-            st.write("Columnas disponibles en 'df_res_com':", df.columns.tolist())
+    if tabla not in tablas_permitidas:
+        st.error(f"Tabla '{tabla}' no permitida.")
+        return pd.DataFrame()
+
+    columnas_sql = ", ".join(columnas) if columnas else "*"
+    query = f"SELECT {columnas_sql} FROM {tabla}"
+    params = [cuv] if cuv else None
+    if cuv:
+        query += " WHERE CUV = ?"
+
+    connection = get_db_connection()
+
+    if connection:
+        try:
+            df = pd.read_sql(query, connection, params=params)
+            logging.info(
+                f"Consulta ejecutada en la tabla '{tabla}' para CUV: {cuv}" if cuv else f"Consulta ejecutada en la tabla '{tabla}'")
+            return df
+        except Exception as e:
+            st.error(f"Error al consultar la tabla '{tabla}': {e}")
+            logging.error(f"Error al consultar la tabla '{tabla}': {e}")
+            return pd.DataFrame()
+        finally:
+            connection.close()
+            logging.info("Conexión a la base de datos cerrada.")
+    else:
+        return pd.DataFrame()
+
+
+# Función para extraer y validar 'codigo_ciiu'
+def extraer_codigo_ciiu(df, columna='CIIU_CT'):
+    """
+    Extrae y valida el 'codigo_ciiu' de la columna especificada en el DataFrame.
+
+    Parámetros:
+    - df (pd.DataFrame): DataFrame que contiene la columna 'CIIU_CT'.
+    - columna (str): Nombre de la columna de donde extraer el 'codigo_ciiu'.
+
+    Retorna:
+    - int o None: 'codigo_ciiu' si es válido, de lo contrario None.
+    """
+    if columna not in df.columns:
+        st.error(f"No se encontró la columna '{columna}' en la tabla 'Base Completa'.")
+        return None
+
+    # Extraer el primer valor no nulo de 'CIIU_CT'
+    primer_valor = df[columna].dropna().iloc[0] if not df[columna].dropna().empty else None
+
+    if not primer_valor:
+        st.error("No se encontró un valor válido en 'CIIU_CT'.")
+        return None
+
+    # Procesar el valor para extraer 'codigo_ciiu'
+    if isinstance(primer_valor, str):
+        partes = primer_valor.split('_')
+        if len(partes) < 2:
+            st.error(f"El formato de '{columna}' es inválido: '{primer_valor}'. Se esperaba al menos un '_' separador.")
+            return None
+        codigo_ciiu_str = partes[-1]
+    else:
+        codigo_ciiu_str = str(primer_valor)
+
+    # Validar que 'codigo_ciiu' sea numérico
+    if not codigo_ciiu_str.isdigit():
+        st.error(f"El valor de 'codigo_ciiu' extraído no es numérico: '{codigo_ciiu_str}'.")
+        return None
+
+    # Convertir a entero
+    codigo_ciiu = int(codigo_ciiu_str)
+
+    # Validar la longitud del código (ejemplo: asumiendo que debe tener entre 1 y 2 dígitos)
+    if len(codigo_ciiu_str) > 5:
+        codigo_ciiu = int(codigo_ciiu_str[:2])
+    elif len(codigo_ciiu_str) > 1:
+        codigo_ciiu = int(codigo_ciiu_str[:1])
+
+    return codigo_ciiu
+
+
+# Función para procesar columnas de fecha
+def procesar_columna_fecha(df, columna, formato='%d-%m-%Y'):
+    """
+    Convierte una columna de fechas en el DataFrame al formato deseado.
+
+    Parameters:
+    - df (pd.DataFrame): El DataFrame que contiene la columna.
+    - columna (str): El nombre de la columna a procesar.
+    - formato (str): El formato al que se desea convertir la fecha.
+
+    Returns:
+    - pd.DataFrame: El DataFrame con la columna procesada.
+    """
+    if columna in df.columns:
+        df[columna] = pd.to_datetime(df[columna], errors='coerce', dayfirst=True).dt.strftime(formato)
         return df
+    else:
+        raise ValueError(f"La columna '{columna}' no se encontró en el DataFrame.")
 
 
-    columnas_fecha = ['Fecha Inicio', 'Fecha Fin']
-
-    # Procesar cada columna de fecha
-    for columna in columnas_fecha:
-        df_res_com = procesar_columna_fecha(df_res_com, columna)
+if proceso_actual == "Búsqueda":
+    st.header("Paso 1: Realizar Búsqueda")
 
 
+
+
+    ############### Parte 2: Definición de Tablas y Búsqueda por CUV ################
+
+    # Lista de tablas a consultar en la base de datos
+    tablas_a_consultar = [
+        "informe_CEAL__Summary",
+        "informe_CEAL__basecompleta",
+        "informe_CEAL__df_porcentajes_niveles",
+        "informe_CEAL__df_res_dimTE3",
+        "informe_CEAL__df_resumen",
+        "informe_CEAL__resultado",
+        "informe_CEAL__top_glosas",
+        "informe_CEAL__fileresultados"
+    ]
+
+    # Mapeo de nombres de tablas a nombres amigables para su visualización en la interfaz
+    nombres_amigables = {
+        "informe_CEAL__Summary": "Summary",
+        "informe_CEAL__basecompleta": "BaseCompleta",
+        "informe_CEAL__df_porcentajes_niveles": "Porcentajes Niveles",
+        "informe_CEAL__df_res_dimTE3": "Res Dim TE3",
+        "informe_CEAL__df_resumen": "Resumen",
+        "informe_CEAL__resultado": "Resultado",
+        "informe_CEAL__top_glosas": "Top Glosas",
+        "informe_CEAL__fileresultados": "Filas Resultados",
+        "informe_CEAL__ciiu": "CIIU",
+        "informe_CEAL__rec": "Recomendaciones"
+    }
+
+    # Título y cuadro de texto para ingresar el CUV
+    st.header("Aplicación de Búsqueda por CUV")
+    cuv_valor = st.text_input("Ingresa el CUV que deseas buscar:", "")
+
+    # Inicializar variables en st.session_state
+    variables_iniciales = [
+        'combined_df_base_complet3',
+        'df_res_com',
+        'summary_df',
+        'df_porcentajes_niveles',
+        'df_res_dimTE3',
+        'df_resumen',
+        'df_resultados_porcentaje',
+        'top_glosas',
+        'df_ciiu',
+        'df_recomendaciones',
+        'df_resultados'
+    ]
+
+    for var in variables_iniciales:
+        if var not in st.session_state:
+            st.session_state[var] = pd.DataFrame()
+
+    # Botón para ejecutar la búsqueda
+    if st.button("Buscar"):
+        if not cuv_valor.strip():
+            st.warning("Por favor, ingresa un valor de CUV antes de continuar.")
+        else:
+            st.header(f"Resultados para CUV: {cuv_valor}")
+
+            # Diccionario para almacenar los DataFrames resultantes de cada tabla
+            resultados = {}
+
+            # Consultar tablas sin filtrar por CUV (recomendaciones generales)
+            # Ahora, las recomendaciones serán específicas por Sección
+            resultados["df_recomendaciones"] = consultar_tabla("informe_CEAL__rec")
+            resultados["df_ciiu"] = consultar_tabla("informe_CEAL__ciiu")
+
+            # Consultar cada tabla y almacenar el resultado
+            for tabla in tablas_a_consultar:
+                nombre_amigable = nombres_amigables.get(tabla, tabla)
+
+                # Caso especial para la tabla 'informe_CEAL__fileresultados'
+                if tabla == "informe_CEAL__fileresultados":
+                    columnas_fileresultados = ['CUV', 'Folio']
+                    df_resultados = consultar_tabla(tabla, cuv_valor, columnas=columnas_fileresultados)
+                    resultados["df_resultados"] = df_resultados
+
+                    df_res_com = consultar_tabla(tabla, cuv_valor)  # Todas las columnas
+                    resultados["df_res_com"] = df_res_com
+                else:
+                    df = consultar_tabla(tabla, cuv_valor)
+                    resultados[nombre_amigable] = df
+
+            # Asignar DataFrames a st.session_state
+            st.session_state.combined_df_base_complet3 = resultados.get("BaseCompleta", pd.DataFrame())
+            st.session_state.summary_df = resultados.get("Summary", pd.DataFrame())
+            st.session_state.df_porcentajes_niveles = resultados.get("Porcentajes Niveles", pd.DataFrame())
+            st.session_state.df_res_dimTE3 = resultados.get("Res Dim TE3", pd.DataFrame())
+            st.session_state.df_resumen = resultados.get("Resumen", pd.DataFrame())
+            st.session_state.df_resultados_porcentaje = resultados.get("Resultado", pd.DataFrame())
+            st.session_state.top_glosas = resultados.get("Top Glosas", pd.DataFrame())
+            st.session_state.df_resultados = resultados.get("df_resultados", pd.DataFrame())
+            st.session_state.df_res_com = resultados.get("df_res_com", pd.DataFrame())
+            st.session_state.df_ciiu = resultados.get("df_ciiu", pd.DataFrame())
+            st.session_state.df_recomendaciones = resultados.get("df_recomendaciones", pd.DataFrame())
+
+            df_ciiu = st.session_state.df_ciiu
+
+            codigo_ciiu = extraer_codigo_ciiu(st.session_state.df_res_com)
+
+            if codigo_ciiu is not None:
+                st.write(f"**Código CIIU Extraído:** {codigo_ciiu}")
+            else:
+                st.error(f"No se pudo determinar el valor de CIIU para el CUV {cuv_valor}.")
+
+            # Continuar con el procesamiento solo si df_res_com no está vacío
+            if not st.session_state.df_res_com.empty:
+                # Asegurar que ciertas columnas sean de tipo string
+                if 'CUV' in st.session_state.df_res_com.columns:
+                    st.session_state.df_res_com['CUV'] = st.session_state.df_res_com['CUV'].astype(str)
+
+                # Procesar columnas de fecha
+                columnas_fecha = ['Fecha_Inicio', 'Fecha_Fin']
+                try:
+                    for columna in columnas_fecha:
+                        st.session_state.df_res_com = procesar_columna_fecha(st.session_state.df_res_com, columna)
+                except ValueError as e:
+                    st.error(e)
+            else:
+                st.info("No se encontraron registros en 'Filas Resultados' para el CUV proporcionado.")
+
+            # Visualización básica de los resultados
+            st.subheader("Filas Resultados (CUV y Folio)")
+            if not st.session_state.df_resultados.empty:
+                st.dataframe(st.session_state.df_resultados)
+            else:
+                st.info("No se encontraron registros en 'Filas Resultados' para el CUV proporcionado.")
+
+            st.subheader("Filas Resultados (Todas las Columnas)")
+            if not st.session_state.df_res_com.empty:
+                st.dataframe(st.session_state.df_res_com)
+            else:
+                st.info("No se encontraron registros en 'Filas Resultados (Todas las Columnas)' para el CUV proporcionado.")
+
+            # Visualizar las otras tablas consultadas
+            otras_tablas = {
+                "BaseCompleta": st.session_state.combined_df_base_complet3,
+                "Summary": st.session_state.summary_df,
+                "Porcentajes Niveles": st.session_state.df_porcentajes_niveles,
+                "Res Dim TE3": st.session_state.df_res_dimTE3,
+                "Resumen": st.session_state.df_resumen,
+                "Resultado": st.session_state.df_resultados_porcentaje,
+                "Top Glosas": st.session_state.top_glosas,
+                "CIIU": st.session_state.df_ciiu,
+                "Recomendaciones": st.session_state.df_recomendaciones
+            }
+
+            combined_df_base_complet3 = st.session_state.combined_df_base_complet3
+            summary_df = st.session_state.summary_df
+            df_porcentajes_niveles = st.session_state.df_porcentajes_niveles
+            df_res_dim_te3 = st.session_state.df_res_dimTE3
+            df_resumen = st.session_state.df_resumen
+            df_resultados_porcentaje = st.session_state.df_resultados_porcentaje
+            top_glosas = st.session_state.top_glosas
+            df_ciiu = st.session_state.df_ciiu
+            df_recomendaciones = st.session_state.df_recomendaciones
+            df_res_com = st.session_state.df_res_com
+            df_resultados = st.session_state.df_resultados
+
+            for nombre, df in otras_tablas.items():
+                st.subheader(nombre)
+                if not df.empty:
+                    st.dataframe(df)
+                else:
+                    st.info(f"No se encontraron registros en '{nombre}' para el CUV proporcionado.")
+
+
+############### Parte 3: Procesamiento posterior a la búsqueda, Funciones de Formateo y Auxiliares ###############
+
+elif proceso_actual == "Procesamiento de Datos":
+    st.header("Paso 2: Procesamiento de Datos")
+
+    if "combined_df_base_complet3" in st.session_state and not st.session_state.combined_df_base_complet3.empty:
+        columnas_fecha = ['Fecha_Inicio', 'Fecha_Fin']
+
+        # Procesar cada columna de fecha
+        for columna in columnas_fecha:
+            try:
+                st.session_state.combined_df_base_complet3 = procesar_columna_fecha(st.session_state.combined_df_base_complet3, columna)
+                st.success(f"Columna {columna} procesada correctamente.")
+            except ValueError as e:
+                st.error(f"Error procesando la columna {columna}: {e}")
+    else:
+        st.warning("No hay datos disponibles. Realice primero la búsqueda.")
+
+    columnas_fecha = ['Fecha_Inicio', 'Fecha_Fin']
+
+    # Asegúrate que df_res_com esté disponible en session_state antes de este bloque
+    if "df_res_com" in st.session_state and not st.session_state.df_res_com.empty:
+        df_res_com = st.session_state.df_res_com.copy()
+        for columna in columnas_fecha:
+            df_res_com = procesar_columna_fecha(df_res_com, columna)
+        # Si quieres actualizar el session_state con el df procesado
+        st.session_state.df_res_com = df_res_com
+    else:
+        st.warning("No hay datos en df_res_com para procesar.")
 
 
 
@@ -468,11 +742,17 @@ if (uploaded_file_combined is not None and
         st.markdown(contenido)
 
 
-    # Sección 2: Selección de CUV para generar el informe
-    st.header("Seleccionar CUV para generar el informe")
+elif proceso_actual == "Resultados":
+    st.header("Paso 3: Visualización de Resultados")
 
-    cuvs_disponibles = summary_df['CUV'].unique()
-    selected_cuv = st.selectbox("Selecciona un CUV", cuvs_disponibles)
+    if "combined_df_base_complet3" in st.session_state and not st.session_state.combined_df_base_complet3.empty:
+        st.subheader("Datos Procesados")
+        st.dataframe(st.session_state.combined_df_base_complet3)
+    else:
+        st.warning("No hay resultados disponibles. Realice primero la búsqueda y el procesamiento.")
+
+
+    selected_cuv = summary_df['CUV'].unique()
 
     # Filtrar los datos para el CUV seleccionado
     datos = df_res_com[df_res_com['CUV'] == selected_cuv]
@@ -773,9 +1053,6 @@ if (uploaded_file_combined is not None and
                 return nombre
 
 
-        # Crear un diccionario temporal para almacenar interpretaciones en st.session_state si no existe
-        if 'interpretaciones_temporales' not in st.session_state:
-            st.session_state['interpretaciones_temporales'] = {}
 
         # Procesar cada GES
         for ges, dimensiones in ges_groups.items():
@@ -1081,305 +1358,317 @@ if (uploaded_file_combined is not None and
         else:
             st.warning("No se han seleccionado medidas para guardar.")
 
-def establecer_orientacion_apaisada(doc):
-    """
-    Configura el documento en orientación horizontal (apaisado).
-    """
-    section = doc.sections[0]
-    new_width, new_height = section.page_height, section.page_width
-    section.page_width = new_width
-    section.page_height = new_height
-    section.top_margin = Cm(1)
-    section.bottom_margin = Cm(1)
-    section.left_margin = Cm(1)
-    section.right_margin = Cm(1)
 
-# Sección 6: Generación del informe en Word
-st.header("6. Generación del informe en Word")
+elif proceso_actual == "Informe":
+    st.header("Paso 4: Generación de informe")
 
-def establecer_orientacion_apaisada(doc):
-    """
-    Configura el documento en orientación horizontal (apaisado).
-    """
-    section = doc.sections[0]
-    new_width, new_height = section.page_height, section.page_width
-    section.page_width = new_width
-    section.page_height = new_height
-    section.top_margin = Cm(1)
-    section.bottom_margin = Cm(1)
-    section.left_margin = Cm(1)
-    section.right_margin = Cm(1)
+    if "combined_df_base_complet3" in st.session_state and not st.session_state.combined_df_base_complet3.empty:
+        st.subheader("Datos Procesados")
+        st.dataframe(st.session_state.combined_df_base_complet3)
+    else:
+        st.warning("No hay resultados disponibles. Realice primero la búsqueda y el procesamiento.")
 
-def generar_contenido_word(datos, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df, confirmadas_df, df_resultados_porcentaje):
 
-    """
-    Genera el contenido del informe en un objeto Document de python-docx.
-    """
-    # Crear un nuevo documento
-    doc = Document()
-    establecer_orientacion_apaisada(doc)
+    def establecer_orientacion_apaisada(doc):
+        """
+        Configura el documento en orientación horizontal (apaisado).
+        """
+        section = doc.sections[0]
+        new_width, new_height = section.page_height, section.page_width
+        section.page_width = new_width
+        section.page_height = new_height
+        section.top_margin = Cm(1)
+        section.bottom_margin = Cm(1)
+        section.left_margin = Cm(1)
+        section.right_margin = Cm(1)
 
-    # Establecer Calibri como fuente predeterminada para el estilo 'Normal'
-    style = doc.styles['Normal']
-    font = style.font
-    font.name = 'Calibri'
-    font.size = Pt(9)  # Tamaño de fuente opcional; ajusta según prefieras
+    # Sección 6: Generación del informe en Word
+    st.header("6. Generación del informe en Word")
 
-    # Crear un nuevo estilo llamado 'destacado' con Calibri y tamaño de fuente 12
-    destacado = doc.styles.add_style('destacado', 1)  # 1 para párrafos
-    destacado_font = destacado.font
-    destacado_font.name = 'Calibri'
-    destacado_font.size = Pt(12)  # Tamaño de la fuente en puntos
+    def establecer_orientacion_apaisada(doc):
+        """
+        Configura el documento en orientación horizontal (apaisado).
+        """
+        section = doc.sections[0]
+        new_width, new_height = section.page_height, section.page_width
+        section.page_width = new_width
+        section.page_height = new_height
+        section.top_margin = Cm(1)
+        section.bottom_margin = Cm(1)
+        section.left_margin = Cm(1)
+        section.right_margin = Cm(1)
 
-    # Configurar el idioma del documento en español
-    lang = doc.styles['Normal'].element
-    lang.set(qn('w:lang'), 'es-ES')
+    def generar_contenido_word(datos, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df, confirmadas_df, df_resultados_porcentaje):
 
-    doc.add_paragraph()
-    doc.add_paragraph()
-    doc.add_paragraph()
-    doc.add_paragraph()
-    # Agregar imagen del logo (ajusta la ruta de la imagen a tu ubicación)
-    doc.add_picture('IST.jpg', width=Inches(2))  # Ajusta el tamaño según sea necesario
-    last_paragraph = doc.paragraphs[-1]
-    last_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER  # Alinear al centro
-    doc.add_paragraph()
+        """
+        Genera el contenido del informe en un objeto Document de python-docx.
+        """
+        # Crear un nuevo documento
+        doc = Document()
+        establecer_orientacion_apaisada(doc)
 
-    # Título principal
-    titulo = doc.add_heading('INFORME TÉCNICO', level=1)
-    titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        # Establecer Calibri como fuente predeterminada para el estilo 'Normal'
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Calibri'
+        font.size = Pt(9)  # Tamaño de fuente opcional; ajusta según prefieras
 
-    # Subtítulo
-    subtitulo = doc.add_heading('PRESCRIPCIÓN DE MEDIDAS PARA PROTOCOLO DE VIGILANCIA', level=2)
-    subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    # Subtítulo
-    subtitulo = doc.add_heading('DE RIESGOS PSICOSOCIALES EN EL TRABAJO', level=2)
-    subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    doc.add_paragraph()
+        # Crear un nuevo estilo llamado 'destacado' con Calibri y tamaño de fuente 12
+        destacado = doc.styles.add_style('destacado', 1)  # 1 para párrafos
+        destacado_font = destacado.font
+        destacado_font.name = 'Calibri'
+        destacado_font.size = Pt(12)  # Tamaño de la fuente en puntos
 
-    # Información general
-    p = doc.add_paragraph()
-    p.add_run('Razón Social: ').bold = True
-    p.add_run(f"{datos.get('Nombre Empresa', 'N/A')}\n")
-    p.add_run('RUT: ').bold = True
-    p.add_run(f"{datos.get('RUT Empresa Lugar Geográfico', 'N/A')}\n")
-    p.add_run('Nombre del centro de trabajo: ').bold = True
-    p.add_run(f"{datos.get('Nombre Centro de Trabajo', 'N/A')}\n")
-    p.add_run('CUV: ').bold = True
-    p.add_run(f"{datos.get('CUV', 'N/A')}\n")
-    p.add_run('CIIU: ').bold = True
-    p.add_run(f"{datos.get('CIIU CT', 'N/A').split('_')[-1]}\n")
-    p.add_run('Fecha de activación del cuestionario: ').bold = True
-    p.add_run(f"{datos.get('Fecha Inicio', 'N/A')}\n")
-    p.add_run('Fecha de cierre del cuestionario: ').bold = True
-    p.add_run(f"{datos.get('Fecha Fin', 'N/A')}\n")
-    p.add_run('Universo de trabajadores de evaluación: ').bold = True
-    p.add_run(f"{datos.get('Nº Trabajadores CT', 'N/A')}\n")
-    p.paragraph_format.left_indent = Cm(1.5)
+        # Configurar el idioma del documento en español
+        lang = doc.styles['Normal'].element
+        lang.set(qn('w:lang'), 'es-ES')
 
-    # Salto de página
-    doc.add_page_break()
-
-    # Título de sección
-    doc.add_heading('RESULTADOS GENERALES', level=2)
-
-    # Información de riesgo general
-    p = doc.add_paragraph()
-    p.add_run('Nivel de riesgo: ').bold = True
-    p.add_run(f"{estado_riesgo}\n")
-    p.style.font.size = Pt(12)
-
-    # Insertar imagen del gráfico principal
-    if fig_principal:
-        img_buffer = BytesIO()
-        fig_principal.savefig(img_buffer, format='png')
-        img_buffer.seek(0)
-        doc.add_picture(img_buffer, width=Inches(6))
-        img_buffer.close()
+        doc.add_paragraph()
+        doc.add_paragraph()
+        doc.add_paragraph()
+        doc.add_paragraph()
+        # Agregar imagen del logo (ajusta la ruta de la imagen a tu ubicación)
+        doc.add_picture('IST.jpg', width=Inches(2))  # Ajusta el tamaño según sea necesario
         last_paragraph = doc.paragraphs[-1]
-        last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        last_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER  # Alinear al centro
+        doc.add_paragraph()
 
-        # Obtener dimensiones en riesgo
-        dimensiones_riesgo_altog = df_resultados_porcentaje[
-            (df_resultados_porcentaje['CUV'] == datos['CUV']) & (
-                    df_resultados_porcentaje['Puntaje'] == 2)
-            ]['Dimensión'].tolist()
+        # Título principal
+        titulo = doc.add_heading('INFORME TÉCNICO', level=1)
+        titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
 
-        dimensiones_riesgo_mediog = df_resultados_porcentaje[
-            (df_resultados_porcentaje['CUV'] == datos['CUV']) & (
-                    df_resultados_porcentaje['Puntaje'] == 1)
-            ]['Dimensión'].tolist()
+        # Subtítulo
+        subtitulo = doc.add_heading('PRESCRIPCIÓN DE MEDIDAS PARA PROTOCOLO DE VIGILANCIA', level=2)
+        subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        # Subtítulo
+        subtitulo = doc.add_heading('DE RIESGOS PSICOSOCIALES EN EL TRABAJO', level=2)
+        subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        doc.add_paragraph()
 
-        dimensiones_riesgo_bajog = df_resultados_porcentaje[
-            (df_resultados_porcentaje['CUV'] == datos['CUV']) & (
-                    df_resultados_porcentaje['Puntaje'] == -2)
-            ]['Dimensión'].tolist()
-
-        # Dimensiones en riesgo
+        # Información general
         p = doc.add_paragraph()
-        p.add_run('Dimensiones en riesgo alto: ').bold = True
-        p.add_run(f"{', '.join(dimensiones_riesgo_altog) if dimensiones_riesgo_altog else 'Ninguna'}\n")
-        p.add_run('Dimensiones en riesgo medio: ').bold = True
-        p.add_run(f"{', '.join(dimensiones_riesgo_mediog) if dimensiones_riesgo_mediog else 'Ninguna'}\n")
-        p.add_run('Dimensiones en riesgo bajo: ').bold = True
-        p.add_run(f"{', '.join(dimensiones_riesgo_bajog) if dimensiones_riesgo_bajog else 'Ninguna'}\n")
-
-
-
-
-
-    # Salto de página
-    doc.add_page_break()
-
-    # Agregar gráficos por TE3
-    for fig_te3, te3 in figs_te3:
-        doc.add_heading(f"RESULTADOS POR ÁREA O GES {te3}", level=2)
-
-        # Insertar el gráfico
-        img_buffer = BytesIO()
-        fig_te3.savefig(img_buffer, format='png')
-        img_buffer.seek(0)
-        doc.add_picture(img_buffer, width=Inches(6))
-        img_buffer.close()
-        last_paragraph = doc.paragraphs[-1]
-        last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        # Obtener dimensiones en riesgo alto, medio y bajo
-        dimensiones_riesgo_alto = df_porcentajes_niveles[
-            (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (
-                    df_porcentajes_niveles['Puntaje'] == 2)
-            ]['Dimensión'].tolist()
-
-        dimensiones_riesgo_medio = df_porcentajes_niveles[
-            (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (
-                    df_porcentajes_niveles['Puntaje'] == 1)
-            ]['Dimensión'].tolist()
-
-        dimensiones_riesgo_bajo = df_porcentajes_niveles[
-            (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (
-                    df_porcentajes_niveles['Puntaje'] == -2)
-            ]['Dimensión'].tolist()
-
-        # Dimensiones en riesgo alto, medio y bajo
-        p = doc.add_paragraph()
-        p.add_run('Dimensiones en riesgo alto: ').bold = True
-        p.add_run(f"{', '.join(dimensiones_riesgo_alto) if dimensiones_riesgo_alto else 'Ninguna'}\n")
-        p.add_run('Dimensiones en riesgo medio: ').bold = True
-        p.add_run(f"{', '.join(dimensiones_riesgo_medio) if dimensiones_riesgo_medio else 'Ninguna'}\n")
-        p.add_run('Dimensiones en riesgo bajo: ').bold = True
-        p.add_run(f"{', '.join(dimensiones_riesgo_bajo) if dimensiones_riesgo_bajo else 'Ninguna'}\n")
-
-        p = doc.add_paragraph()
-        p.add_run (f"{', '.join(interpretaciones_df)}\n")
-
-        print(interpretaciones_df)
-
-        def ges_contains_te3(ges_string, te3):
-            ges_list = [ges.strip().lower() for ges in ges_string.split(';')]
-            return te3.strip().lower() in ges_list
-
-        interpretación = interpretaciones_df[
-            interpretaciones_df['GES'].apply(lambda x: ges_contains_te3(x, te3))
-        ]['Interpretación'].values
-
-        print("Interpretaciones obtenidas:", interpretación)
-
-        # Filtrar interpretaciones no vacías
-        interpretacion_list = [text for text in interpretación if text.strip()]
-        interpretacion_unida = ' '.join(interpretacion_list) if interpretacion_list else 'Sin interpretación disponible'
-
-        # Agregar al documento Word
-        p = doc.add_paragraph()
-        p.add_run('Interpretación del grupo de discusión: ').bold = True
-        p.add_run(f"{interpretacion_unida}\n")
+        p.add_run('Razón Social: ').bold = True
+        p.add_run(f"{datos.get('Nombre Empresa', 'N/A')}\n")
+        p.add_run('RUT: ').bold = True
+        p.add_run(f"{datos.get('RUT Empresa Lugar Geográfico', 'N/A')}\n")
+        p.add_run('Nombre del centro de trabajo: ').bold = True
+        p.add_run(f"{datos.get('Nombre Centro de Trabajo', 'N/A')}\n")
+        p.add_run('CUV: ').bold = True
+        p.add_run(f"{datos.get('CUV', 'N/A')}\n")
+        p.add_run('CIIU: ').bold = True
+        p.add_run(f"{datos.get('CIIU CT', 'N/A').split('_')[-1]}\n")
+        p.add_run('Fecha de activación del cuestionario: ').bold = True
+        p.add_run(f"{datos.get('Fecha Inicio', 'N/A')}\n")
+        p.add_run('Fecha de cierre del cuestionario: ').bold = True
+        p.add_run(f"{datos.get('Fecha Fin', 'N/A')}\n")
+        p.add_run('Universo de trabajadores de evaluación: ').bold = True
+        p.add_run(f"{datos.get('Nº Trabajadores CT', 'N/A')}\n")
+        p.paragraph_format.left_indent = Cm(1.5)
 
         # Salto de página
         doc.add_page_break()
 
+        # Título de sección
+        doc.add_heading('RESULTADOS GENERALES', level=2)
 
-    # Agregar tabla de medidas propuestas desde summary_df
-    doc.add_heading(f"Medidas propuestas para {datos.get('Nombre Centro de Trabajo', 'N/A')}", level=2)
-    table = doc.add_table(rows=1, cols=4)
-    table.style = 'Table Grid'
-    hdr_cells = table.rows[0].cells
-    hdr_cells[0].text = 'Dimensión'
-    hdr_cells[1].text = 'Medida'
-    hdr_cells[2].text = 'Fecha monitoreo'
-    hdr_cells[3].text = 'Responsable'
+        # Información de riesgo general
+        p = doc.add_paragraph()
+        p.add_run('Nivel de riesgo: ').bold = True
+        p.add_run(f"{estado_riesgo}\n")
+        p.style.font.size = Pt(12)
 
-    for _, row in confirmadas_df.iterrows():
-        row_cells = table.add_row().cells
-        row_cells[0].text = str(row.get('Dimensión', 'N/A'))
-        row_cells[1].text = str(row.get('Medida', 'N/A'))
-        row_cells[2].text = str(row.get('Fecha monitoreo', 'N/A'))
-        row_cells[3].text = str(row.get('Responsable', 'N/A'))
+        # Insertar imagen del gráfico principal
+        if fig_principal:
+            img_buffer = BytesIO()
+            fig_principal.savefig(img_buffer, format='png')
+            img_buffer.seek(0)
+            doc.add_picture(img_buffer, width=Inches(6))
+            img_buffer.close()
+            last_paragraph = doc.paragraphs[-1]
+            last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # Retornar el objeto Document
-    return doc
+            # Obtener dimensiones en riesgo
+            dimensiones_riesgo_altog = df_resultados_porcentaje[
+                (df_resultados_porcentaje['CUV'] == datos['CUV']) & (
+                        df_resultados_porcentaje['Puntaje'] == 2)
+                ]['Dimensión'].tolist()
 
-def generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles, CUV, interpretaciones_df, confirmadas_df):
+            dimensiones_riesgo_mediog = df_resultados_porcentaje[
+                (df_resultados_porcentaje['CUV'] == datos['CUV']) & (
+                        df_resultados_porcentaje['Puntaje'] == 1)
+                ]['Dimensión'].tolist()
 
-    """
-    Genera el informe en Word para un CUV específico.
-    """
-    if 'CUV' not in df_res_com.columns or 'CUV' not in summary_df.columns:
-        st.error("La columna 'CUV' no se encuentra en los DataFrames proporcionados.")
-        return None
+            dimensiones_riesgo_bajog = df_resultados_porcentaje[
+                (df_resultados_porcentaje['CUV'] == datos['CUV']) & (
+                        df_resultados_porcentaje['Puntaje'] == -2)
+                ]['Dimensión'].tolist()
 
-    datos = df_res_com[df_res_com['CUV'] == CUV]
-    estado = summary_df[summary_df['CUV'] == CUV]
+            # Dimensiones en riesgo
+            p = doc.add_paragraph()
+            p.add_run('Dimensiones en riesgo alto: ').bold = True
+            p.add_run(f"{', '.join(dimensiones_riesgo_altog) if dimensiones_riesgo_altog else 'Ninguna'}\n")
+            p.add_run('Dimensiones en riesgo medio: ').bold = True
+            p.add_run(f"{', '.join(dimensiones_riesgo_mediog) if dimensiones_riesgo_mediog else 'Ninguna'}\n")
+            p.add_run('Dimensiones en riesgo bajo: ').bold = True
+            p.add_run(f"{', '.join(dimensiones_riesgo_bajog) if dimensiones_riesgo_bajog else 'Ninguna'}\n")
 
-    if datos.empty:
-        st.error(f"No se encontró el CUV {CUV} en df_res_com.")
-        return None
-    if estado.empty:
-        st.error(f"No se encontró el CUV {CUV} en summary_df.")
-        return None
 
-    row = datos.iloc[0]
-    estado_riesgo = estado['Riesgo'].values[0]
 
-    # Generar el gráfico principal
-    fig_principal = generar_grafico_principal(df_resultados_porcentaje, CUV)
-    if not fig_principal:
-        st.warning("No se pudo generar el gráfico principal.")
-        return None
 
-    # Generar gráficos por TE3
-    figs_te3 = generar_graficos_por_te3(df_porcentajes_niveles, CUV)
 
-    # Generar el contenido en el documento Word usando python-docx
-    doc = generar_contenido_word(row, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df, confirmadas_df, df_resultados_porcentaje)
+        # Salto de página
+        doc.add_page_break()
 
-    # Guardar el documento en un BytesIO para descarga
-    docx_buffer = BytesIO()
-    doc.save(docx_buffer)
-    docx_buffer.seek(0)
+        # Agregar gráficos por TE3
+        for fig_te3, te3 in figs_te3:
+            doc.add_heading(f"RESULTADOS POR ÁREA O GES {te3}", level=2)
 
-    return docx_buffer
+            # Insertar el gráfico
+            img_buffer = BytesIO()
+            fig_te3.savefig(img_buffer, format='png')
+            img_buffer.seek(0)
+            doc.add_picture(img_buffer, width=Inches(6))
+            img_buffer.close()
+            last_paragraph = doc.paragraphs[-1]
+            last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-# Botón para generar y descargar el informe
-if st.button("Generar informe en Word"):
+            # Obtener dimensiones en riesgo alto, medio y bajo
+            dimensiones_riesgo_alto = df_porcentajes_niveles[
+                (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (
+                        df_porcentajes_niveles['Puntaje'] == 2)
+                ]['Dimensión'].tolist()
 
-    if (uploaded_file_combined is not None and
-            uploaded_file_rec is not None and
-            uploaded_file_ciiu is not None and
-            uploaded_file_resultados is not None and
-            'df_res_com' in locals() and 'summary_df' in locals()):
-        with st.spinner("Generando el informe, por favor espera..."):
-            # Generar el documento
-            doc_buffer = generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles,
-                                         selected_cuv, interpretaciones_df, confirmadas_df)
+            dimensiones_riesgo_medio = df_porcentajes_niveles[
+                (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (
+                        df_porcentajes_niveles['Puntaje'] == 1)
+                ]['Dimensión'].tolist()
 
-            if doc_buffer:
-                # Botón de descarga
-                st.download_button(
-                    label="Descargar informe",
-                    data=doc_buffer,
-                    file_name=f"Informe_{selected_cuv}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-    else:
-        st.warning(
-            "Los datos necesarios para generar el informe no están disponibles. Asegúrate de haber cargado todos los archivos requeridos.")
+            dimensiones_riesgo_bajo = df_porcentajes_niveles[
+                (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (
+                        df_porcentajes_niveles['Puntaje'] == -2)
+                ]['Dimensión'].tolist()
+
+            # Dimensiones en riesgo alto, medio y bajo
+            p = doc.add_paragraph()
+            p.add_run('Dimensiones en riesgo alto: ').bold = True
+            p.add_run(f"{', '.join(dimensiones_riesgo_alto) if dimensiones_riesgo_alto else 'Ninguna'}\n")
+            p.add_run('Dimensiones en riesgo medio: ').bold = True
+            p.add_run(f"{', '.join(dimensiones_riesgo_medio) if dimensiones_riesgo_medio else 'Ninguna'}\n")
+            p.add_run('Dimensiones en riesgo bajo: ').bold = True
+            p.add_run(f"{', '.join(dimensiones_riesgo_bajo) if dimensiones_riesgo_bajo else 'Ninguna'}\n")
+
+            p = doc.add_paragraph()
+            p.add_run (f"{', '.join(interpretaciones_df)}\n")
+
+            print(interpretaciones_df)
+
+            def ges_contains_te3(ges_string, te3):
+                ges_list = [ges.strip().lower() for ges in ges_string.split(';')]
+                return te3.strip().lower() in ges_list
+
+            interpretación = interpretaciones_df[
+                interpretaciones_df['GES'].apply(lambda x: ges_contains_te3(x, te3))
+            ]['Interpretación'].values
+
+            print("Interpretaciones obtenidas:", interpretación)
+
+            # Filtrar interpretaciones no vacías
+            interpretacion_list = [text for text in interpretación if text.strip()]
+            interpretacion_unida = ' '.join(interpretacion_list) if interpretacion_list else 'Sin interpretación disponible'
+
+            # Agregar al documento Word
+            p = doc.add_paragraph()
+            p.add_run('Interpretación del grupo de discusión: ').bold = True
+            p.add_run(f"{interpretacion_unida}\n")
+
+            # Salto de página
+            doc.add_page_break()
+
+
+        # Agregar tabla de medidas propuestas desde summary_df
+        doc.add_heading(f"Medidas propuestas para {datos.get('Nombre Centro de Trabajo', 'N/A')}", level=2)
+        table = doc.add_table(rows=1, cols=4)
+        table.style = 'Table Grid'
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = 'Dimensión'
+        hdr_cells[1].text = 'Medida'
+        hdr_cells[2].text = 'Fecha monitoreo'
+        hdr_cells[3].text = 'Responsable'
+
+        for _, row in confirmadas_df.iterrows():
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(row.get('Dimensión', 'N/A'))
+            row_cells[1].text = str(row.get('Medida', 'N/A'))
+            row_cells[2].text = str(row.get('Fecha monitoreo', 'N/A'))
+            row_cells[3].text = str(row.get('Responsable', 'N/A'))
+
+        # Retornar el objeto Document
+        return doc
+
+    def generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles, CUV, interpretaciones_df, confirmadas_df):
+
+        """
+        Genera el informe en Word para un CUV específico.
+        """
+        if 'CUV' not in df_res_com.columns or 'CUV' not in summary_df.columns:
+            st.error("La columna 'CUV' no se encuentra en los DataFrames proporcionados.")
+            return None
+
+        datos = df_res_com[df_res_com['CUV'] == CUV]
+        estado = summary_df[summary_df['CUV'] == CUV]
+
+        if datos.empty:
+            st.error(f"No se encontró el CUV {CUV} en df_res_com.")
+            return None
+        if estado.empty:
+            st.error(f"No se encontró el CUV {CUV} en summary_df.")
+            return None
+
+        row = datos.iloc[0]
+        estado_riesgo = estado['Riesgo'].values[0]
+
+        # Generar el gráfico principal
+        fig_principal = generar_grafico_principal(df_resultados_porcentaje, CUV)
+        if not fig_principal:
+            st.warning("No se pudo generar el gráfico principal.")
+            return None
+
+        # Generar gráficos por TE3
+        figs_te3 = generar_graficos_por_te3(df_porcentajes_niveles, CUV)
+
+        # Generar el contenido en el documento Word usando python-docx
+        doc = generar_contenido_word(row, estado_riesgo, fig_principal, figs_te3, interpretaciones_df, summary_df, confirmadas_df, df_resultados_porcentaje)
+
+        # Guardar el documento en un BytesIO para descarga
+        docx_buffer = BytesIO()
+        doc.save(docx_buffer)
+        docx_buffer.seek(0)
+
+        return docx_buffer
+
+    # Botón para generar y descargar el informe
+    if st.button("Generar informe en Word"):
+
+        if (uploaded_file_combined is not None and
+                uploaded_file_rec is not None and
+                uploaded_file_ciiu is not None and
+                uploaded_file_resultados is not None and
+                'df_res_com' in locals() and 'summary_df' in locals()):
+            with st.spinner("Generando el informe, por favor espera..."):
+                # Generar el documento
+                doc_buffer = generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles,
+                                             selected_cuv, interpretaciones_df, confirmadas_df)
+
+                if doc_buffer:
+                    # Botón de descarga
+                    st.download_button(
+                        label="Descargar informe",
+                        data=doc_buffer,
+                        file_name=f"Informe_{selected_cuv}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+        else:
+            st.warning(
+                "Los datos necesarios para generar el informe no están disponibles. Asegúrate de haber cargado todos los archivos requeridos.")
+
 

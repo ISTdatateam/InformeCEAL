@@ -1,8 +1,20 @@
-import os
+'''
+folder_path = r'H:\Mi unidad\SM-CEAL\Reporteria masiva\tablas'
+output_path = r'H:\Mi unidad\SM-CEAL\Reporteria masiva\salida_test.xlsx'
+resultados_path = r'H:\Mi unidad\SM-CEAL\Reporteria masiva\database.xlsx'
+output_archivos = r'H:\Mi unidad\SM-CEAL\Reporteria masiva'
+'''
+
+
+#resultados_path = r'H:\Mi unidad\SM-CEAL\database.xlsx'
+output_path = r'H:\Mi unidad\SM-CEAL\salida_test.xlsx'
+
+
 import pandas as pd
-import re
 import logging
 import pyodbc
+import numpy as np
+
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,9 +43,10 @@ def get_db_connection():
         return None
 
 
+
 # Función para cargar los datos desde la tabla 'archivo_combinado'
-def load_data():
-    query = "SELECT * FROM informeCEAL_combinado"
+def load_data_database():
+    query = "SELECT * FROM informeCEAL_combinado WHERE RUT = '69060300-4';"
     connection = get_db_connection()
 
     if connection is not None:
@@ -49,18 +62,59 @@ def load_data():
         return pd.DataFrame()  # Retorna un DataFrame vacío si la conexión falla
 
 
+# Función para cargar los datos desde la tabla 'archivo_combinado'
+def load_data_combinado():
+    query = "SELECT * FROM informeCEAL_combinado"
+    connection = get_db_connection()
+
+    if connection is not None:
+        try:
+            df = pd.read_sql(query, connection)
+            return df
+        except pd.io.sql.DatabaseError as e:
+            st.error(f"Error al ejecutar la consulta SQL: {e}")
+            return pd.DataFrame()  # Retorna un DataFrame vacío en caso de error
+        finally:
+            connection.close()
+    else:
+        return pd.DataFrame()  # Retorna un DataFrame vacío si la conexión falla
+
 # Cargar el DataFrame
-combined_df_base_completa = load_data()
+df_res_com = load_data_database()
+
+
+# Cargar el DataFrame
+combined_df_base_completa = load_data_combinado()
 combined_df_base_completa.rename(columns={'CdT': 'CDT_Glosa','DD1': 'Genero', 'DD2': 'Edad', 'TE1': 'CdT','TE1.1': 'TE1'}, inplace=True)
 combined_df_base_completa['Genero'] = combined_df_base_completa['Genero'].replace({1: 'Hombre', 2: 'Mujer', 3: 'NcOtro', 4: 'NcOtro'})
 print(combined_df_base_completa.columns.tolist())
 
-'''
-folder_path = r'H:\Mi unidad\SM-CEAL\Reporteria masiva\tablas'
-output_path = r'H:\Mi unidad\SM-CEAL\Reporteria masiva\salida_test.xlsx'
-resultados_path = r'H:\Mi unidad\SM-CEAL\Reporteria masiva\database.xlsx'
-output_archivos = r'H:\Mi unidad\SM-CEAL\Reporteria masiva'
-'''
+# Función para comparar y modificar los campos
+def compare_and_concat(row):
+    cdt = row['CdT'].strip()
+    cdt_glosa = row['CDT_Glosa'].strip()
+
+    if cdt != cdt_glosa:
+        return f"{cdt_glosa} - {cdt}"
+    return cdt
+
+
+# Aplicar la función a cada fila del DataFrame y eliminar la columna 'CDT_glosa'
+combined_df_base_completa['CdT'] = combined_df_base_completa.apply(compare_and_concat, axis=1)
+combined_df_base_completa = combined_df_base_completa.drop(columns=['CDT_Glosa'])
+
+#Parche para considion actual de DB
+for col in ['AL', 'HO']:
+    if col in combined_df_base_completa.columns:
+        combined_df_base_completa[col] = pd.to_numeric(combined_df_base_completa[col], errors='coerce').astype('Int64')
+
+# Crear una nueva columna para los rangos de edad
+bins = [18, 25, 36, 49, float('inf')]
+labels = ['18 a 25', '26 a 36', '37 a 49', '50 o más']
+combined_df_base_completa['Rango Edad'] = pd.cut(combined_df_base_completa['Edad'], bins=bins, labels=labels,
+                                                 right=False)
+
+##############
 
 ceal = [
     {"Coddim": "CT", "Dimensión": "Carga de trabajo", "Codpreg": "QD1",
@@ -230,26 +284,8 @@ risk_intervals = [
 # Crear el DataFrame a partir del arreglo
 df_risk_intervals = pd.DataFrame(risk_intervals)
 
+############
 
-# Función para comparar y modificar los campos
-def compare_and_concat(row):
-    cdt = row['CdT'].strip()
-    cdt_glosa = row['CDT_Glosa'].strip()
-
-    if cdt != cdt_glosa:
-        return f"{cdt_glosa} - {cdt}"
-    return cdt
-
-
-# Aplicar la función a cada fila del DataFrame y eliminar la columna 'CDT_glosa'
-combined_df_base_completa['CdT'] = combined_df_base_completa.apply(compare_and_concat, axis=1)
-combined_df_base_completa = combined_df_base_completa.drop(columns=['CDT_Glosa'])
-
-# Crear una nueva columna para los rangos de edad
-bins = [18, 25, 36, 49, float('inf')]
-labels = ['18 a 25', '26 a 36', '37 a 49', '50 o más']
-combined_df_base_completa['Rango Edad'] = pd.cut(combined_df_base_completa['Edad'], bins=bins, labels=labels,
-                                                 right=False)
 
 
 # Definir la función para asignar puntaje
@@ -638,8 +674,10 @@ df_resultados_porcentaje = df_resultados_porcentaje.merge(df_ceal[['Dimensión',
 df_resultados_porcentaje = df_resultados_porcentaje.drop_duplicates(subset=None)
 
 # Leer 'resultados.xlsx'
-df_resultados = pd.read_excel(resultados_path, sheet_name='Datos', usecols=['CUV', 'Folio'])
-df_res_com = pd.read_excel(resultados_path, sheet_name='Datos')
+#df_resultados = pd.read_excel(resultados_path, sheet_name='Datos', usecols=['CUV', 'Folio'])
+#df_res_com = pd.read_excel(resultados_path, sheet_name='Datos')
+
+df_resultados = df_res_com[['CUV', 'Folio']]
 
 
 # Convertir 'CUV' a int64 en df_resultados
@@ -717,703 +755,4 @@ with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
     df_res_dimTE3.to_excel(writer, sheet_name='df_res_dimTE3', index=False)
     df_resumen.to_excel(writer, sheet_name='df_resumen', index=False)
 
-
-    ###########
-
-    # Cargar el archivo 'Recomendaciones2.xlsx' en el DataFrame (cambia 'hoja1' al nombre correcto de la hoja si es necesario)
-    df_rec = pd.read_excel('Recomendaciones2.xlsx', sheet_name='Hoja1')
-
-    # Crear un DataFrame vacío para almacenar el resultado
-    df_reco = pd.DataFrame(columns=['Dimensión', 'Rubro', 'Recomendación'])
-
-    # Recorrer las filas del DataFrame original y extraer las recomendaciones por cada rubro
-    for index, row in df_rec.iterrows():
-        dimension = row['Dimensión']  # Tomar el valor de la Dimensión en la fila actual
-        for i in range(0, len(row) - 1, 2):
-            rubro_col = f'Rubro.{i // 2}' if i // 2 > 0 else 'Rubro'
-            recomendacion_col = f'Recomendación.{i // 2}' if i // 2 > 0 else 'Recomendación'
-
-            if rubro_col in row and recomendacion_col in row:
-                rubro = row[rubro_col]
-                recomendacion = row[recomendacion_col]
-
-                # Evitar agregar filas con valores vacíos
-                if pd.notna(rubro) and pd.notna(recomendacion):
-                    df_reco = pd.concat(
-                        [df_reco, pd.DataFrame([[dimension, rubro, recomendacion]], columns=df_reco.columns)],
-                        ignore_index=True)
-
-
-    with pd.ExcelWriter('df_reco.xlsx', engine='xlsxwriter') as writer:
-        df_reco.to_excel(writer, sheet_name='df_reco', index=False)
-
-    df_ciiu = pd.read_excel('ciiu.xlsx', sheet_name='ciiu')
-
-
-    #df_concatenado = df_recomendaciones.groupby('Dimensión')['Recomendación'].apply(lambda x: '\n'.join(x)).reset_index()
-    #with pd.ExcelWriter('reco_concatenado.xlsx', engine='xlsxwriter') as writer:
-    #    df_concatenado.to_excel(writer, sheet_name='recomendaciones', index=False)
-
-    # Realizar el merge entre `df_ciiu` y `df_recomendaciones` usando la columna `Sección` y `Rubro`
-    df_recomendaciones = pd.merge(df_ciiu, df_reco, left_on='Sección', right_on='Rubro')
-
-    print (df_recomendaciones)
-    ###############
-
-    import unicodedata
-
-    def normalizar_texto(texto):
-        if isinstance(texto, str):
-            texto = texto.strip().lower()
-            texto = ''.join(
-                c for c in unicodedata.normalize('NFD', texto)
-                if unicodedata.category(c) != 'Mn'
-            )
-            return texto
-        else:
-            return ''
-
-    def obtener_dimm_por_dimension(nombre_dimension):
-        nombre_dimension_normalizado = normalizar_texto(nombre_dimension)
-        df_dimensiones = dataframes['dimensiones'].copy()  # Ahora accede al DataFrame desde el diccionario
-        df_dimensiones['dimension_normalizada'] = df_dimensiones['dimension'].apply(normalizar_texto)
-        resultado = df_dimensiones[df_dimensiones['dimension_normalizada'] == nombre_dimension_normalizado]
-        if not resultado.empty:
-            return resultado.iloc[0]['dimm']
-        else:
-            print(f"No se encontró el código 'dimm' para la dimensión '{nombre_dimension}'.")
-            return None
-
-
-    ############
-
-
-    # Asegurarse de que la columna 'CUV' en todos los DataFrames sea de tipo str
-    df_res_com['CUV'] = df_res_com['CUV'].astype(str)
-    summary_df['CUV'] = summary_df['CUV'].astype(str)
-    df_resultados_porcentaje['CUV'] = df_resultados_porcentaje['CUV'].astype(str)
-    df_porcentajes_niveles['CUV'] = df_porcentajes_niveles['CUV'].astype(str)
-    df_res_dimTE3['CUV'] = df_res_dimTE3['CUV'].astype(str)
-    df_resumen['CUV'] = df_resumen['CUV'].astype(str)
-    top_glosas['CUV'] = top_glosas['CUV'].astype(str)
-    df_recomendaciones['ciiu'] =df_recomendaciones['ciiu'].astype(str)
-
-
-    # Convertir las fechas al tipo datetime y luego al formato deseado
-    df_res_com['Fecha Inicio'] = pd.to_datetime(df_res_com['Fecha Inicio'], errors='coerce').dt.strftime('%d-%m-%Y')
-    df_res_com['Fecha Fin'] = pd.to_datetime(df_res_com['Fecha Fin'], errors='coerce').dt.strftime('%d-%m-%Y')
-
-
-    #########
-
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    # Función para guardar el gráfico principal como imagen temporal
-    def guardar_grafico_principal(df, CUV):
-        df_filtrado = df[df['CUV'] == CUV]
-        if df_filtrado.empty:
-            print(f"No se encontraron datos para el CUV {CUV}.")
-            return None
-
-        # Pivoteo de los datos para organizar por Dimensión y Nivel, y luego invertir el orden de las filas
-        df_pivot = df_filtrado.pivot(index="Dimensión", columns="Nivel", values="Porcentaje").fillna(0).iloc[::-1]
-        fig, ax = plt.subplots(figsize=(12, 8))
-
-        niveles = ["Bajo", "Medio", "Alto"]
-        colores = {"Bajo": "green", "Medio": "orange", "Alto": "red"}
-        posiciones = np.arange(len(df_pivot.index))
-        ancho_barra = 0.2
-
-        for i, nivel in enumerate(niveles):
-            valores = df_pivot[nivel]
-            ax.barh(posiciones + i * ancho_barra, valores, height=ancho_barra,
-                    label=f"Porcentaje de trabajadores en riesgo {nivel.lower()} (%)", color=colores[nivel])
-
-        ax.axvline(50, color="blue", linestyle="--", linewidth=1)
-        ax.set_title(f"Porcentaje de trabajadores por nivel de riesgo - CUV {CUV}", pad=50)
-        ax.set_xlabel("Porcentaje")
-        ax.set_ylabel("Dimensiones")
-        ax.set_xlim(0, 100)
-        ax.set_yticks(posiciones + ancho_barra)
-        ax.set_yticklabels(df_pivot.index, rotation=0, ha='right')
-
-        fig.legend(title="Nivel de Riesgo", loc="upper center", bbox_to_anchor=(0.5, 0.93), ncol=3)
-        plt.subplots_adjust(left=0.3, top=0.85)
-
-        img_path = f"grafico_resultado_CUV_{CUV}.png"
-        plt.savefig(img_path, format="png", bbox_inches="tight")
-        plt.close()
-
-        return img_path
-
-
-    #############
-
-    # Filtrar solo los registros con puntaje 1 o 2
-    df_filtrado_porcuv = df_res_dimTE3[df_res_dimTE3['Puntaje'].isin([1, 2])]
-
-    # Agrupar por 'CUV' y 'Dimensión' y combinar los valores únicos de 'TE3' en una lista
-    resultado_porcuv = df_filtrado_porcuv.groupby(['CUV', 'Dimensión'])['TE3'].unique().reset_index()
-
-    # Convertir las listas de valores de 'TE3' a una cadena separada por "; "
-    resultado_porcuv['GES'] = resultado_porcuv['TE3'].apply(lambda x: '; '.join(x))
-
-    # Reemplazar caracteres especiales en toda la columna 'GES'
-    resultado_porcuv['GES'] = resultado_porcuv['GES'].str.replace(' | ', '_', regex=False)
-    resultado_porcuv['GES'] = resultado_porcuv['GES'].str.replace(':', '_', regex=False)
-    resultado_porcuv['GES'] = resultado_porcuv['GES'].str.replace('?', '_', regex=False)
-
-    # Eliminar la columna temporal 'TE3'
-    resultado_porcuv = resultado_porcuv[['CUV', 'Dimensión', 'GES']]
-
-    # Mostrar el resultado
-    #print(resultado_porcuv)
-
-    ###############
-
-
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    def guardar_graficos_por_te3(df, CUV):
-        """
-        Guarda gráficos para cada valor de TE3 dentro del CUV especificado.
-
-        Parámetros:
-        df (pd.DataFrame): DataFrame que contiene los datos de TE3, Dimensión, Nivel y Porcentaje.
-        CUV (str): El identificador del CUV para filtrar los datos.
-
-        Retorna:
-        list: Lista de tuplas con la ruta de cada imagen generada y el valor de TE3 correspondiente.
-        """
-        df_cuv = df[df['CUV'] == CUV]
-        if df_cuv.empty:
-            print(f"No se encontraron datos para el CUV {CUV}.")
-            return []
-
-        if 'TE3' not in df_cuv.columns:
-            print(f"La columna 'TE3' no existe en el DataFrame para CUV {CUV}.")
-            return []
-
-        te3_values = df_cuv['TE3'].unique()
-
-        # Verificar si la cardinalidad de TE3 es 1
-        if len(te3_values) == 1:
-            print(f"Solo hay un valor de TE3 ({te3_values[0]}) para el CUV {CUV}. No se generarán gráficos.")
-            return []
-
-        img_paths_te3 = []
-
-        for te3 in te3_values:
-            df_te3 = df_cuv[df_cuv['TE3'] == te3]
-            df_pivot = df_te3.pivot(index="Dimensión", columns="Nivel", values="Porcentaje").fillna(0).iloc[::-1]
-
-            fig, ax = plt.subplots(figsize=(12, 8))
-
-            niveles = ["Bajo", "Medio", "Alto"]
-            colores = {"Bajo": "green", "Medio": "orange", "Alto": "red"}
-            posiciones = np.arange(len(df_pivot.index))
-            ancho_barra = 0.2
-
-            for i, nivel in enumerate(niveles):
-                valores = df_pivot[nivel]
-                ax.barh(posiciones + i * ancho_barra, valores, height=ancho_barra,
-                        label=f"Porcentaje de trabajadores en riesgo {nivel.lower()} (%)", color=colores[nivel])
-
-            ax.axvline(50, color="blue", linestyle="--", linewidth=1)
-            ax.set_title(f"Porcentaje de trabajadores por nivel de riesgo - CUV {CUV}, TE3 {te3}", pad=50)
-            ax.set_xlabel("Porcentaje")
-            ax.set_ylabel("Dimensiones")
-            ax.set_xlim(0, 100)
-            ax.set_yticks(posiciones + ancho_barra)
-            ax.set_yticklabels(df_pivot.index, rotation=0, ha='right')
-
-            fig.legend(title="Nivel de Riesgo", loc="upper center", bbox_to_anchor=(0.5, 0.93), ncol=3)
-            plt.subplots_adjust(left=0.3, top=0.85)
-
-            img_path_te3 = f"grafico_resultado_CUV_{CUV}_TE3_{te3}.png".replace('|', '_').replace(':', '_').replace('?', '_')
-            plt.savefig(img_path_te3, format="png", bbox_inches="tight")
-            plt.close()
-            img_paths_te3.append((img_path_te3, te3))  # Guardar como tupla
-
-        return img_paths_te3
-
-
-    #########
-    '''
-    # Insertar recomendaciones para cada dimensión en riesgo
-                dimensiones_en_riesgo = dimensiones_riesgo_alto + dimensiones_riesgo_medio + dimensiones_riesgo_bajo
-                if dimensiones_en_riesgo:
-                    doc.add_heading('Recomendaciones por Dimensión en Riesgo', level=3)
-                    for dimension in dimensiones_en_riesgo:
-                        # Determinar el nivel de riesgo de la dimensión
-                        if dimension in dimensiones_riesgo_alto:
-                            nivel_riesgo = "Alto"
-                        elif dimension in dimensiones_riesgo_medio:
-                            nivel_riesgo = "Medio"
-                        elif dimension in dimensiones_riesgo_bajo:
-                            nivel_riesgo = "Bajo"
-                        else:
-                            nivel_riesgo = "Desconocido"  # Solo por precaución
-    
-                        # Agregar el nombre de la dimensión y el nivel de riesgo
-                        doc.add_paragraph(f"Dimensión {dimension} (Riesgo {nivel_riesgo})", style="Heading 4")
-    
-                        # Agregar las recomendaciones para esta dimensión
-                        recomendaciones = df_recomendaciones[df_recomendaciones['Dimensión'] == dimension][
-                            'Recomendación'].tolist()
-                        for rec in recomendaciones:
-                            doc.add_paragraph(f"- {rec}")
-    
-    
-    '''
-
-
-
-
-
-    #############
-
-    from docx.shared import Cm
-    from docx import Document
-    from docx.shared import Pt, Cm, RGBColor
-    from docx.oxml.ns import qn
-    from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-    from docx.shared import Inches
-
-    #print("ESTAS SON LAS TOP GLOSAS")
-    #print(top_glosas.columns)
-    #print("FIN TOP GLOSAS")
-
-    def agregar_tabla_ges_por_dimension(doc, df, cuv, df_recomendaciones, df_resultados_porcentaje,df_porcentajes_niveles, top_glosas, datos):
-        """
-        Agrega una tabla de dimensiones y GES para un CUV específico en el documento de Word.
-
-        Parámetros:
-        doc (Document): El objeto del documento de Word.
-        df (pd.DataFrame): DataFrame con los datos de dimensiones y GES filtrados.
-        cuv (str): El CUV específico para el que se generará la tabla.
-        df_recomendaciones (pd.DataFrame): DataFrame con las recomendaciones por dimensión.
-        """
-
-        df_revision = df[(df['CUV'] == cuv)]
-        if len(df_revision['TE3'].unique()) < 2 :
-            noges = 1
-            print(f"Solo hay un GES para el CUV {CUV}. No se generarán recomendaciones por GES.")
-        else:
-            noges = 0
-
-
-
-        # Filtrar el DataFrame para el CUV específico y obtener solo las columnas necesarias
-        df_cuv = df[(df['CUV'] == cuv) & (df['Puntaje'].isin([1, 2]))]
-
-        # Agrupar por 'Dimensión' y combinar los valores únicos de 'TE3' en una lista separada por "; "
-        resultado = df_cuv.groupby('Dimensión')['TE3'].unique().reset_index()
-        resultado['GES'] = resultado['TE3'].apply(lambda x: '; '.join(x))
-        resultado['GES'] = resultado['GES'].str.replace('|', '_', regex=False).str.replace(':', '_',
-                                                                                           regex=False).str.replace('?',
-                                                                                                                    '_',
-                                                                                                                    regex=False)
-        # Asegúrate de que los valores en 'CIIU' son numéricos y trata con NaN o valores no numéricos
-        datos['CIIU'] = datos['CIIU'].apply(lambda x: x.split('_')[-1] if isinstance(x, str) else x)
-
-        # Filtra el DataFrame para el CUV específico y convierte el valor a entero si es numérico
-        ciiu_valor = datos.loc[datos['CUV'] == cuv, 'CIIU'].copy()
-
-        # Verifica que se ha encontrado el valor y que es un número antes de aplicar la lógica
-        if len(ciiu_valor) > 0:
-            ciiu_unico = ciiu_valor.iloc[0]
-
-            # Si el valor es un número, aplica la extracción de decenas de miles
-            if isinstance(ciiu_unico, str) and ciiu_unico.isdigit():
-                ciiu = int(ciiu_unico[:2]) if len(ciiu_unico) > 5 else int(ciiu_unico[:1])
-                print("El valor del ciuu para buscar es: " + str(ciiu))
-            else:
-                print("El valor de CIIU no es numérico.")
-        else:
-            print("CUV no encontrado en la tabla de datos.")
-
-        # Filtrar por el valor de `ciiu` y `Dimensión` deseados
-        #df_resultado = df_merged[(df_merged['ciiu'] == ciiu_valor) & (df_merged['Dimensión'] == dimension_valor)]
-
-        # Mostrar el resultado
-        #print(df_resultado[['ciiu', 'Sección', 'Dimensión', 'Recomendación']])
-
-
-
-        # Crear la tabla en el documento
-        doc.add_paragraph()
-        table = doc.add_table(rows=1, cols=6)
-        table.style = 'Table Grid'
-        column_widths = [Inches(0.5),Inches(0.5),Inches(0.5),Inches(7),Inches(0.5),Inches(0.5)]
-        # Configurar el ancho de cada columna
-        for col_idx, width in enumerate(column_widths):
-            for cell in table.columns[col_idx].cells:
-                cell.width = width
-
-        # Agregar encabezados
-        hdr_cells = table.rows[0].cells
-        hdr_cells[0].text = 'Dimensión en riesgo'
-        hdr_cells[1].text = 'Preguntas clave'
-        hdr_cells[2].text = 'Explicación'
-        hdr_cells[3].text = 'Medidas propuestas'
-        hdr_cells[4].text = 'Fecha monitoreo'
-        hdr_cells[5].text = 'Responsable seguimiento'
-
-        # Rellenar la tabla con los datos de 'Dimensión' y 'GES'
-
-        for _, row in resultado.iterrows():
-            dim = row['Dimensión']
-            ges = row['GES']
-
-            # Obtener las recomendaciones para esta dimensión
-            recomendaciones = df_recomendaciones[
-                (df_recomendaciones['Dimensión'] == dim) &
-                (df_recomendaciones['ciiu'] == str(ciiu))
-                ]['Recomendación'].tolist()
-            medidas_propuestas = '\n'.join([f"- {rec}" for rec in recomendaciones])
-
-            # Obtener la descripción relacionada desde df_resultados_porcentaje
-            descripcion = df_resultados_porcentaje[(df_resultados_porcentaje['Dimensión'] == dim) &
-                                                   (df_resultados_porcentaje['CUV'] == cuv)]['Descripción'].values
-            descripcion = [desc for desc in descripcion if str(desc).strip() != '']
-
-            descripcion2 = [
-                f"{desc} en {ges}"
-                for desc in df_porcentajes_niveles[
-                    (df_porcentajes_niveles['Dimensión'] == dim) &
-                    (df_porcentajes_niveles['CUV'] == cuv) &
-                    (df_porcentajes_niveles['TE3'] == ges) &
-                    (df_porcentajes_niveles['Descripción'].str.strip() != '')  # Excluir vacíos
-                    ]['Descripción'].values
-            ]
-
-            if len(descripcion) > 0 and len(descripcion[0]) > 0:
-                descripcion_text = descripcion[0] + " para todo el centro de trabajo\n"  # Usa el primer elemento si no es una cadena vacía
-            elif len(descripcion) > 1 and len(descripcion[1]) > 0:
-                descripcion_text = descripcion[1] + " para todo el centro de trabajo\n" # Usa el segundo elemento si no es una cadena vacía
-            elif len(descripcion) > 2 and len(descripcion[2]) > 0:
-                descripcion_text = descripcion[2] + " para todo el centro de trabajo\n" # Usa el segundo elemento si no es una cadena vacía
-            else:
-                descripcion_text = ""
-
-            descripcion2_text = '\n'.join(descripcion2)
-            descripcion2_text = str(descripcion2_text).replace("[", "").replace("]", "").replace("'", "")
-
-            te3_values = df_cuv['TE3'].unique()
-            # Verificar si la cardinalidad de TE3 es 1
-            if noges == 1:
-                descripcion2_text = ""
-                print(f"Solo hay un GES para el CUV {CUV}. No se generarán recomendaciones por GES.")
-            else:
-                descripcion2_text = descripcion2_text
-
-
-
-            # Depuración: Verificar si hay filas en top_glosas que coincidan con los valores de dim y cuv
-            filtro_glosas = top_glosas[(top_glosas['Dimensión'] == dim) & (top_glosas['CUV'] == cuv)]
-            #print(f"Dimensión: {dim}, CUV: {cuv}, Filas coincidentes en top_glosas: {len(filtro_glosas)}")
-
-            preguntas = [
-                desc for desc in filtro_glosas['Pregunta'].values
-            ]
-
-            # Convertir la lista de preguntas a texto
-            preguntas_text = '\n'.join(preguntas)
-
-            # Verificar si preguntas se imprime correctamente
-            #print("Preguntas seleccionadas:", preguntas_text)
-
-            # Rellenar las celdas de la tabla
-            row_cells = table.add_row().cells
-            row_cells[0].text = str(str(descripcion_text).lstrip() + "\n"+ str(descripcion2_text).lstrip()).lstrip()
-            row_cells[1].text = preguntas_text.lstrip()  # Asignar preguntas_text en lugar de preguntas
-            row_cells[2].text = ''  # Espacio para 'Explicación'
-            row_cells[3].text = medidas_propuestas  # Medidas propuestas
-
-        # Ajustar el tamaño de fuente de las celdas (opcional)
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        run.font.size = Pt(9)  # Ajusta el tamaño de la fuente
-    ######
-
-
-    def establecer_orientacion_apaisada(doc):
-        """
-        Configura el documento en orientación apaisada (horizontal).
-        """
-        # Acceder al elemento de configuración de la sección (Sección 1, que es la sección predeterminada)
-        section = doc.sections[0]
-
-        # Intercambiar los valores de ancho y alto para hacer la página horizontal
-        new_width, new_height = section.page_height, section.page_width
-        section.page_width = new_width
-        section.page_height = new_height
-
-        # Configurar márgenes (opcional)
-        section.top_margin = Inches(0.5)
-        section.bottom_margin = Inches(0.5)
-        section.left_margin = Inches(0.5)
-        section.right_margin = Inches(0.5)
-
-
-    ########
-
-
-    from docx.oxml.ns import qn
-    from docx.shared import Pt, Inches
-
-
-    def generar_contenido_word(datos, estado_riesgo, img_path_principal, img_paths_te3, df_resumen, df_porcentajes_niveles, df_resultados_porcentaje, nombre_archivo):
-        """
-        Genera el contenido del informe en un documento Word, incluyendo la información general,
-        gráficos y recomendaciones de intervenciones.
-
-        Parámetros:
-        datos (pd.Series): Serie con los datos de un CUV específico.
-        estado_riesgo (str): Nivel de riesgo del CUV.
-        img_path_principal (str): Ruta de la imagen principal del gráfico.
-        img_paths_te3 (list): Lista de tuplas con rutas de imágenes y valores de TE3.
-        df_resumen (pd.DataFrame): DataFrame con datos resumidos de riesgo.
-        df_res_dimTE3 (pd.DataFrame): DataFrame con datos de dimensiones por TE3.
-        nombre_archivo (str): Ruta donde se guardará el documento Word generado.
-        """
-        # Crear un nuevo documento
-        doc = Document()
-        establecer_orientacion_apaisada(doc)
-        #section = doc.sections[0]
-        #section.page_height = Inches(11)  # 11 pulgadas de alto para Carta
-        #section.page_width = Inches(8.5)  # 8.5 pulgadas de ancho para Carta
-
-        # Establecer Calibri como fuente predeterminada para el estilo 'Normal'
-        style = doc.styles['Normal']
-        font = style.font
-        font.name = 'Calibri'
-        font.size = Pt(9)  # Tamaño de fuente opcional; ajusta según prefieras
-
-        # Crear un nuevo estilo llamado 'destacado' con Calibri y tamaño de fuente 12
-        destacado = doc.styles.add_style('destacado', 1)  # 1 para párrafos
-        destacado_font = destacado.font
-        destacado_font.name = 'Calibri'
-        destacado_font.size = Pt(12)  # Tamaño de la fuente en puntos
-
-        # Configurar el idioma del documento en español
-        lang = doc.styles['Normal'].element
-        lang.set(qn('w:lang'), 'es-ES')
-
-        doc.add_paragraph()
-        doc.add_paragraph()
-        doc.add_paragraph()
-        doc.add_paragraph()
-        # Agregar imagen del logo (ajusta la ruta de la imagen a tu ubicación)
-        doc.add_picture('ist.jpg', width=Inches(2))  # Ajusta el tamaño según sea necesario
-        last_paragraph = doc.paragraphs[-1]
-        last_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER  # Alinear a la derecha
-        doc.add_paragraph()
-
-        # Título principal
-        titulo = doc.add_heading('INFORME TÉCNICO', level=1)
-        titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-
-        # Subtítulo
-        subtitulo = doc.add_heading('PRESCRIPCIÓN DE MEDIDAS PARA PROTOCOLO DE VIGILANCIA', level=2)
-        subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-        # Subtítulo
-        subtitulo = doc.add_heading('DE RIESGOS PSICOSOCIALES EN EL TRABAJO', level=2)
-        subtitulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-        doc.add_paragraph()
-        doc.add_paragraph()
-
-
-        # Información general
-        p = doc.add_paragraph()
-        p.add_run('Razón Social: ').bold = True
-        p.add_run(f"{datos['Nombre Empresa']}\n")
-        p.add_run('RUT: ').bold = True
-        p.add_run(f"{datos['RUT Empresa Lugar Geográfico']}\n")
-        p.add_run('Nombre del centro de trabajo: ').bold = True
-        p.add_run(f"{datos['Nombre Centro de Trabajo']}\n")
-        p.add_run('CUV: ').bold = True
-        p.add_run(f"{datos['CUV']}\n")
-        #p.add_run('Organismo Administrador: ').bold = True
-        #p.add_run(f"{datos['Organismo Administrador']}\n")
-        p.add_run('CIIU: ').bold = True
-        p.add_run(f"{datos['CIIU CT'].split('_')[-1]}\n")
-        p.add_run('Fecha de activación del cuestionario: ').bold = True
-        p.add_run(f"{datos['Fecha Inicio']}\n")
-        p.add_run('Fecha de cierre del cuestionario: ').bold = True
-        p.add_run(f"{datos['Fecha Fin']}\n")
-        p.add_run('Universo de trabajadores de evaluación: ').bold = True
-        p.add_run(f"{datos['Nº Trabajadores CT']}\n")
-        #p.add_run('Participación: ').bold = True
-        #p.add_run(f"{datos['Participación (%)']}%\n")
-        #p.add_run('Razón aplicación cuestionario: ').bold = True
-        #p.add_run(f"{datos['Razón aplicación cuestionario']}\n")
-        p.paragraph_format.left_indent = Cm(15)
-
-        # Salto de página
-        doc.add_page_break()
-        doc.add_picture('ist.jpg', width=Inches(1))  # Ajusta el tamaño según sea necesario
-        last_paragraph = doc.paragraphs[-1]
-        last_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.RIGHT  # Alinear a la derecha
-
-
-        # Título de sección
-        doc.add_heading('RESULTADOS GENERALES CEAL-SM SUSESO', level=2)
-
-        # Información de riesgo general
-        p = doc.add_paragraph()
-        p.add_run('Nivel de riesgo: ').bold = True
-        p.add_run(f"{estado_riesgo}\n")
-        p.style = destacado
-
-
-        # Insertar imagen principal
-        if img_path_principal:
-            doc.add_picture(img_path_principal, width=Inches(6))
-            last_paragraph = doc.paragraphs[-1]
-            last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        # Obtener dimensiones en riesgo
-        dimensiones_riesgo_altog = df_resultados_porcentaje[
-            (df_resultados_porcentaje['CUV'] == datos['CUV']) & (
-                        df_resultados_porcentaje['Puntaje'] == 2)
-            ]['Dimensión'].tolist()
-
-        dimensiones_riesgo_mediog = df_resultados_porcentaje[
-            (df_resultados_porcentaje['CUV'] == datos['CUV']) & (
-                        df_resultados_porcentaje['Puntaje'] == 1)
-            ]['Dimensión'].tolist()
-
-        dimensiones_riesgo_bajog = df_resultados_porcentaje[
-            (df_resultados_porcentaje['CUV'] == datos['CUV'])  & (
-                        df_resultados_porcentaje['Puntaje'] == -2)
-            ]['Dimensión'].tolist()
-
-        # Dimensiones en riesgo
-        p = doc.add_paragraph()
-        p.add_run('Dimensiones en riesgo alto: ').bold = True
-        p.add_run(f"{', '.join(dimensiones_riesgo_altog) if dimensiones_riesgo_altog else 'Ninguna'}\n")
-        p.add_run('Dimensiones en riesgo medio: ').bold = True
-        p.add_run(f"{', '.join(dimensiones_riesgo_mediog) if dimensiones_riesgo_mediog else 'Ninguna'}\n")
-        p.add_run('Dimensiones en riesgo bajo: ').bold = True
-        p.add_run(f"{', '.join(dimensiones_riesgo_bajog) if dimensiones_riesgo_bajog else 'Ninguna'}\n")
-
-
-        # Salto de página
-        doc.add_page_break()
-        doc.add_picture('ist.jpg', width=Inches(1))  # Ajusta el tamaño según sea necesario
-        last_paragraph = doc.paragraphs[-1]
-        last_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.RIGHT  # Alinear a la derecha
-
-        for img_path_te3, te3 in img_paths_te3:
-            if te3 is not None:
-
-                # Subtítulo con el nombre del TE3
-                doc.add_heading(f"RESULTADOS POR ÁREA O GES {te3}", level=2)
-
-                # Obtener el valor de riesgo para el TE3 y CUV específico
-                riesgo_te3 = df_resumen[(df_resumen['CUV'] == datos['CUV']) & (df_resumen['TE3'] == te3)]['Riesgo']
-                if not riesgo_te3.empty:
-                    riesgo_te3 = riesgo_te3.values[0]
-                else:
-                    riesgo_te3 = "Información no disponible"
-
-                p = doc.add_paragraph()
-                p.add_run('Nivel de riesgo: ').bold = True
-                p.add_run(f"{riesgo_te3}\n")
-                p.style = destacado
-
-                # Insertar la imagen del gráfico para este TE3
-                doc.add_picture(img_path_te3, width=Inches(6))
-                last_paragraph = doc.paragraphs[-1]
-                last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-                # Obtener dimensiones en riesgo alto y medio
-                dimensiones_riesgo_alto = df_porcentajes_niveles[
-                    (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (df_porcentajes_niveles['Puntaje'] == 2)
-                    ]['Dimensión'].tolist()
-
-                dimensiones_riesgo_medio = df_porcentajes_niveles[
-                    (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (df_porcentajes_niveles['Puntaje'] == 1)
-                    ]['Dimensión'].tolist()
-
-                dimensiones_riesgo_bajo = df_porcentajes_niveles[
-                    (df_porcentajes_niveles['CUV'] == datos['CUV']) & (df_porcentajes_niveles['TE3'] == te3) & (df_porcentajes_niveles['Puntaje'] == -2)
-                    ]['Dimensión'].tolist()
-
-                # Dimensiones en riesgo alto y medio
-                p = doc.add_paragraph()
-                p.add_run('Dimensiones en riesgo alto: ').bold = True
-                p.add_run(f"{', '.join(dimensiones_riesgo_alto) if dimensiones_riesgo_alto else 'Ninguna'}\n")
-                p.add_run('Dimensiones en riesgo medio: ').bold = True
-                p.add_run(f"{', '.join(dimensiones_riesgo_medio) if dimensiones_riesgo_medio else 'Ninguna'}\n")
-                p.add_run('Dimensiones en riesgo bajo: ').bold = True
-                p.add_run(f"{', '.join(dimensiones_riesgo_bajo) if dimensiones_riesgo_bajo else 'Ninguna'}\n")
-
-                # Salto de página
-                doc.add_page_break()
-                doc.add_picture('ist.jpg', width=Inches(1))  # Ajusta el tamaño según sea necesario
-                last_paragraph = doc.paragraphs[-1]
-                last_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.RIGHT  # Alinear a la derecha
-
-        # Llamar a la función para agregar la tabla de GES por dimensión al documento
-        doc.add_heading(f"Medidas propuestas para {datos['Nombre Centro de Trabajo']}", level=2)
-        agregar_tabla_ges_por_dimension(doc, df_res_dimTE3, cuv, df_recomendaciones, df_resultados_porcentaje,df_porcentajes_niveles, top_glosas, df_res_com)
-
-
-        # Guardar el documento
-        doc.save(nombre_archivo)
-        print(f"Informe guardado como: {nombre_archivo}")
-
-    ########
-
-    import os
-    from docx import Document
-    from docx.shared import Inches
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-
-    def generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles, CUV, df_resumen,
-                        df_res_dimTE3):
-        datos = df_res_com[df_res_com['CUV'] == CUV]
-        estado = summary_df[summary_df['CUV'] == CUV]
-
-        if datos.empty:
-            print(f"No se encontró el CUV {CUV} en df_res_com.")
-            return
-        if estado.empty:
-            print(f"No se encontró el CUV {CUV} en summary_df.")
-            return
-
-        row = datos.iloc[0]
-        estado_riesgo = estado['Riesgo'].values[0]
-
-        # Guardar el gráfico principal de resultados usando df_resultados_porcentaje
-        img_path_principal = guardar_grafico_principal(df_resultados_porcentaje, CUV)
-        if not img_path_principal:
-            return
-
-        # Guardar gráficos para cada TE3 dentro del CUV usando df_porcentajes_niveles
-        img_paths_te3 = guardar_graficos_por_te3(df_porcentajes_niveles, CUV)
-
-        # Generar el contenido en el documento Word usando python-docx
-        nombre_archivo = os.path.join(output_archivos, f"{row['CUV']}-{row['Nombre Centro de Trabajo']}.docx")
-        generar_contenido_word(row, estado_riesgo, img_path_principal, img_paths_te3, df_resumen,
-                               df_res_dimTE3, df_resultados_porcentaje, nombre_archivo)
-
-        print(f"Informe generado: {nombre_archivo}")
-
-        # Eliminar los archivos temporales de los gráficos
-        os.remove(img_path_principal)
-        for img_path, _ in img_paths_te3:
-            os.remove(img_path)
-
-    #############
-
-    # Generar informes para cada CUV en summary_df
-    for cuv in summary_df['CUV'].unique():
-        generar_informe(df_res_com, summary_df, df_resultados_porcentaje, df_porcentajes_niveles, cuv, df_resumen, df_res_dimTE3)
+print("exito")
